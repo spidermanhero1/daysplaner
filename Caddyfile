@@ -1,0 +1,8 @@
+# Личный HTTPS. Домен: PLANDAYS_DOMAIN=days.example.com caddy run --config Caddyfile
+# Host пробрасывается как есть, чтобы вход сверял origin с ним.
+{$PLANDAYS_DOMAIN:localhost} {
+	reverse_proxy 127.0.0.1:8787 {
+		header_up Host {http.request.host}
+		header_up X-Forwarded-Proto {http.request.scheme}
+	}
+}
