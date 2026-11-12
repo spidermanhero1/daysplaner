@@ -34,9 +34,11 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   } catch {
     throw new Error('Нет связи с сервером.')
   }
-  const data = (await response.json().catch(() => ({}))) as { error?: string }
+  const data = (await response.json().catch(() => ({}))) as { error?: unknown }
   if (response.status === 401 && path !== '/api/login') throw new AuthError()
-  if (!response.ok) throw new Error(data.error || 'Не сохранилось.')
+  if (!response.ok) {
+    throw new Error(typeof data.error === 'string' && data.error ? data.error : 'Не сохранилось.')
+  }
   return data as T
 }
 

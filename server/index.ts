@@ -9,7 +9,13 @@ import { openDatabase } from './db.ts'
 import { openSqlite } from './sqlite.ts'
 import { openTurso } from './turso.ts'
 
-const runtime = assertRuntime()
+let runtime: ReturnType<typeof assertRuntime>
+try {
+  runtime = assertRuntime()
+} catch (error) {
+  console.error(error instanceof Error ? error.message : error)
+  process.exit(1)
+}
 const sql = process.env.TURSO_DATABASE_URL ? openTurso() : openSqlite(runtime.dbFile)
 const database = await openDatabase(sql)
 const { app } = createApp(database, runtime)

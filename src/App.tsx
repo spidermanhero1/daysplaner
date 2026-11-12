@@ -49,7 +49,9 @@ export function App() {
     api
       .session()
       .then(setSession)
-      .catch(() => setSessionError('Не открылось.'))
+      .catch((error: unknown) => {
+        setSessionError(error instanceof Error && error.message ? error.message : 'Не открылось.')
+      })
   }, [])
 
   useEffect(() => {
