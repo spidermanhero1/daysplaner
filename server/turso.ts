@@ -135,7 +135,7 @@ function queryable(runner: Queryable, connection: Connection, nested: boolean): 
     transaction: (fn) => {
       if (nested) return Promise.reject(new Error('Вложенная транзакция.'))
       const txn = connection.transactionAsync(async (tx: Transaction) => fn(queryable(tx, connection, true)))
-      return txn.concurrent()
+      return txn.immediate()
     },
     close: async () => {
       if (!nested) await connection.close()
