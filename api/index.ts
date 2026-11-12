@@ -19,10 +19,20 @@ function openApp() {
   return opening
 }
 
+function requestForApp(request: Request): Request {
+  const url = new URL(request.url)
+  if (url.pathname !== '/api' && url.pathname !== '/api/index') return request
+  const hinted = url.searchParams.get('__path')
+  if (!hinted || !hinted.startsWith('/api/') || hinted.includes('..')) return request
+  url.pathname = hinted
+  url.searchParams.delete('__path')
+  return new Request(url, request)
+}
+
 async function handler(request: Request): Promise<Response> {
   try {
     const app = await openApp()
-    return await app.fetch(request)
+    return await app.fetch(requestForApp(request))
   } catch (error) {
     console.error(error)
     const message = error instanceof Error && error.message ? error.message : 'Не открылось.'
