@@ -1,5 +1,4 @@
 import { useEffect, useState, type ReactNode } from 'react'
-import { createPortal } from 'react-dom'
 import { relativeLabel, shortDateOf } from '../shared/dates.ts'
 import { PACK_SIZE, SMOKE_MAX, type SmokeKind, type SmokePayload } from '../shared/types.ts'
 
@@ -247,7 +246,7 @@ export function SmokeWindow({
     )
   }
 
-  return createPortal(
+  return (
     <aside className={open ? 'smoke' : 'smoke is-shut'} aria-label="Перекуры" aria-busy={pending || !ready}>
       <header className="smoke-head">
         <div>
@@ -261,7 +260,6 @@ export function SmokeWindow({
       </header>
       {open ? <div className="smoke-body">{body}</div> : null}
       {open ? actions : null}
-    </aside>,
-    document.body,
+    </aside>
   )
 }

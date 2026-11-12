@@ -1,3 +1,5 @@
+import type { ThemeId } from './themes.ts'
+
 export type Priority = 'normal' | 'important'
 
 export type Task = {
@@ -71,4 +73,39 @@ export type SmokePayload = {
   smokedJoints: number
   breaks: SmokeBreak[]
   latestId: string | null
+}
+
+/** Магазин, если при добавлении заказа поле пустое. */
+export const DEFAULT_SHOP = 'Лазада'
+
+export type OrderStatus = 'need' | 'ordered' | 'arrived'
+
+export type Grocery = {
+  id: string
+  title: string
+  createdAt: string
+}
+
+export type MarketOrder = {
+  id: string
+  title: string
+  shop: string
+  status: OrderStatus
+  createdAt: string
+}
+
+export type ShoppingPayload = {
+  groceries: Grocery[]
+  orders: MarketOrder[]
+}
+
+export type Profile = {
+  id: string
+  name: string
+  theme: ThemeId
+}
+
+export type ProfilesPayload = {
+  profiles: Profile[]
+  currentId: string
 }

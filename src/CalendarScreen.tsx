@@ -34,8 +34,10 @@ import {
   shortDateOf,
   weekdayOf,
 } from '../shared/dates.ts'
-import type { Priority, Task } from '../shared/types.ts'
+import type { Priority, Profile, Task } from '../shared/types.ts'
 import { DayPane, TaskPane, sortTasks, stepMark } from './panes.tsx'
+import { ProfileMenu, profileLetter } from './ProfileMenu.tsx'
+import { THEMES, themeTone, type ThemeId } from './themes.ts'
 
 const WEEKDAYS = ['пн', 'вт', 'ср', 'чт', 'пт', 'сб', 'вс']
 
@@ -68,6 +70,15 @@ type Props = {
   onAddSubtask: (parentId: string, title: string) => Promise<boolean>
   onReorderSubtasks: (parentId: string, ids: string[]) => void
   onCarry: () => void
+  profiles: Profile[]
+  profileId: string
+  profileName: string
+  theme: ThemeId
+  onTheme: (id: ThemeId) => void
+  onSwitchProfile: (id: string) => Promise<boolean>
+  onAddProfile: (name: string) => Promise<boolean>
+  onRenameProfile: (name: string) => Promise<boolean>
+  onDeleteProfile: () => Promise<boolean>
 }
 
 function weekTitle(days: string[], today: string): string {
@@ -119,6 +130,15 @@ export function CalendarScreen({
   onAddSubtask,
   onReorderSubtasks,
   onCarry,
+  profiles,
+  profileId,
+  profileName,
+  theme,
+  onTheme,
+  onSwitchProfile,
+  onAddProfile,
+  onRenameProfile,
+  onDeleteProfile,
 }: Props) {
   const narrow = useMedia('(max-width: 720px)')
   const split = useMedia('(min-width: 840px)')
@@ -130,7 +150,13 @@ export function CalendarScreen({
   const [picked, setPicked] = useState<string | null>(null)
   const [drafts, setDrafts] = useState<Record<string, string>>({})
   const [dockEdit, setDockEdit] = useState<string | null>(null)
+  const [themesOpen, setThemesOpen] = useState(false)
+  const [profilesOpen, setProfilesOpen] = useState(false)
   const keepPick = useRef<string | null>(null)
+  const themeBtn = useRef<HTMLButtonElement>(null)
+  const themePop = useRef<HTMLDivElement>(null)
+  const profileBtn = useRef<HTMLButtonElement>(null)
+  const profilePop = useRef<HTMLDivElement>(null)
   const wantFocus = useRef(false)
   const didAuto = useRef(false)
   const addRef = useRef<HTMLInputElement>(null)
@@ -180,8 +206,45 @@ export function CalendarScreen({
   const place = relativeLabel(selected, today) ?? shortDateOf(selected)
 
   useEffect(() => {
-    document.title = `${title} · Дни`
-  }, [title])
+    document.title = `${title} · ${profileName}`
+  }, [title, profileName])
+
+  useEffect(() => {
+    const root = document.documentElement
+    const meta = document.querySelector('meta[name="theme-color"]')
+    const current = THEMES.find((item) => item.id === theme) ?? THEMES[0]
+    if (theme === 'paper') delete root.dataset.theme
+    else root.dataset.theme = theme
+    meta?.setAttribute('content', current.color)
+    return () => {
+      delete root.dataset.theme
+      meta?.setAttribute('content', '#f3eadc')
+    }
+  }, [theme])
+
+  useEffect(() => {
+    if (!themesOpen && !profilesOpen) return
+    function onPointer(event: PointerEvent) {
+      const target = event.target
+      if (!(target instanceof Node)) return
+      if (themesOpen && (themeBtn.current?.contains(target) || themePop.current?.contains(target))) return
+      if (target instanceof Element && target.closest('.profile-scrim')) return
+      if (profilesOpen && (profileBtn.current?.contains(target) || profilePop.current?.contains(target))) return
+      setThemesOpen(false)
+      setProfilesOpen(false)
+    }
+    document.addEventListener('pointerdown', onPointer)
+    return () => document.removeEventListener('pointerdown', onPointer)
+  }, [themesOpen, profilesOpen])
+
+  useEffect(() => {
+    setDrafts({})
+    setPicked(null)
+    setOpenedId(null)
+    setSheet(null)
+    setProfilesOpen(false)
+    setThemesOpen(false)
+  }, [profileId])
 
   useEffect(() => {
     if (keepPick.current) {
@@ -237,6 +300,7 @@ export function CalendarScreen({
     function onKey(event: KeyboardEvent) {
       if (event.metaKey || event.ctrlKey) return
       const target = event.target
+      if (target instanceof Element && target.closest('.profile-scrim')) return
       const typing =
         target instanceof HTMLElement &&
         (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)
@@ -246,6 +310,14 @@ export function CalendarScreen({
         return
       }
       if (typing) return
+      if (themesOpen || profilesOpen) {
+        if (event.code === 'Escape') {
+          event.preventDefault()
+          setThemesOpen(false)
+          setProfilesOpen(false)
+        }
+        return
+      }
       if (event.code === 'Escape') {
         if (openedId) {
           event.preventDefault()
@@ -376,6 +448,8 @@ export function CalendarScreen({
     onReorderSubtasks,
     onToggle,
     onPriority,
+    themesOpen,
+    profilesOpen,
   ])
 
   function pickTask(day: string, id: string) {
@@ -472,9 +546,17 @@ export function CalendarScreen({
 
   const addLabel = `Новое дело, ${weekdayOf(selected)} ${dateLineOf(selected)}`
 
+  function chooseTheme(id: ThemeId) {
+    onTheme(id)
+  }
+
   return (
-    <main className={zoom === 'month' ? 'cal is-month' : 'cal is-week'}>
-      <div className="cal-bar">
+    <main
+      className={zoom === 'month' ? 'cal is-month' : 'cal is-week'}
+      data-theme={theme === 'paper' ? undefined : theme}
+      data-tone={themeTone(theme)}
+    >
+      <div className={profilesOpen ? 'cal-bar is-float' : 'cal-bar'}>
         <div className="cal-shift">
           <button type="button" className="cal-arrow" aria-label={zoom === 'month' ? 'Предыдущий месяц' : 'Предыдущая неделя'} onClick={() => onPage(-1)}>
             ←
@@ -486,33 +568,98 @@ export function CalendarScreen({
             →
           </button>
         </div>
-        {selected !== today ? (
-          <button type="button" className="text" onClick={onToday}>
-            сегодня
+        <div className="cal-tools">
+          {selected !== today ? (
+            <button type="button" className="text" onClick={onToday}>
+              сегодня
+            </button>
+          ) : null}
+          <div className="zoom" role="group" aria-label="Масштаб">
+            <button type="button" aria-pressed={zoom === 'month'} onClick={() => onZoom('month')}>
+              месяц
+            </button>
+            <button type="button" aria-pressed={zoom === 'week'} onClick={() => onZoom('week')}>
+              неделя
+            </button>
+          </div>
+          <button
+            ref={themeBtn}
+            type="button"
+            className="text theme-toggle"
+            aria-expanded={themesOpen}
+            aria-controls="theme-pop"
+            onClick={() => {
+              setThemesOpen((open) => !open)
+              setProfilesOpen(false)
+            }}
+          >
+            <span className="theme-dot" data-id={theme} aria-hidden="true" />
+            вид
           </button>
-        ) : null}
-        <div className="zoom" role="group" aria-label="Масштаб">
-          <button type="button" aria-pressed={zoom === 'month'} onClick={() => onZoom('month')}>
-            месяц
+          {selectedOpen.length > 0 ? (
+            <button type="button" className="carry" onClick={onCarry}>
+              Хвост на {relativeLabel(addDays(selected, 1), today) ?? shortDateOf(addDays(selected, 1))}
+            </button>
+          ) : null}
+          <button type="button" className="text" onClick={onArchive}>
+            сделанное
           </button>
-          <button type="button" aria-pressed={zoom === 'week'} onClick={() => onZoom('week')}>
-            неделя
-          </button>
+          {authRequired ? (
+            <button type="button" className="text" onClick={onLogout}>
+              выйти
+            </button>
+          ) : null}
         </div>
-        {selectedOpen.length > 0 ? (
-          <button type="button" className="carry" onClick={onCarry}>
-            Хвост на {relativeLabel(addDays(selected, 1), today) ?? shortDateOf(addDays(selected, 1))}
+        <div className="profile-slot">
+          <button
+            ref={profileBtn}
+            type="button"
+            className="profile-toggle"
+            aria-label={`Профиль ${profileName}`}
+            title={profileName}
+            aria-expanded={profilesOpen}
+            aria-controls="profile-pop"
+            onClick={() => {
+              setProfilesOpen((open) => !open)
+              setThemesOpen(false)
+            }}
+          >
+            <span className="profile-mark" aria-hidden="true">
+              {profileLetter(profileName)}
+            </span>
           </button>
-        ) : null}
-        <button type="button" className="text" onClick={onArchive}>
-          сделанное
-        </button>
-        {authRequired ? (
-          <button type="button" className="text" onClick={onLogout}>
-            выйти
-          </button>
-        ) : null}
+          {profilesOpen ? (
+            <div id="profile-pop" className="profile-pop" ref={profilePop} role="dialog" aria-label="Профили">
+              <ProfileMenu
+                profiles={profiles}
+                currentId={profileId}
+                onSwitch={onSwitchProfile}
+                onAdd={onAddProfile}
+                onRename={onRenameProfile}
+                onDelete={onDeleteProfile}
+                onClose={() => setProfilesOpen(false)}
+              />
+            </div>
+          ) : null}
+        </div>
       </div>
+      {themesOpen ? (
+        <div className="theme-pop" id="theme-pop" ref={themePop} role="listbox" aria-label="Оформление">
+          {THEMES.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              role="option"
+              className="theme-card"
+              aria-selected={item.id === theme}
+              onClick={() => chooseTheme(item.id)}
+            >
+              <span className={item.id === 'paper' ? 'theme-shot is-paper' : 'theme-shot'} data-id={item.id} />
+              <span className="theme-name">{item.name}</span>
+            </button>
+          ))}
+        </div>
+      ) : null}
       {error ? <p className="note">{error}</p> : note ? <p className="note">{note}</p> : null}
       {tasks === null && error ? (
         <button type="button" className="text" onClick={onRetry}>

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import {
   addDays,
   addMonths,
@@ -10,11 +11,26 @@ import {
   weekDays,
 } from '../shared/dates.ts'
 import { carriedNote } from '../shared/text.ts'
-import type { ArchiveGroup, CarryPayload, DayPayload, Priority, SmokeKind, SmokePayload, Task } from '../shared/types.ts'
+import type {
+  ArchiveGroup,
+  CarryPayload,
+  DayPayload,
+  OrderStatus,
+  Priority,
+  Profile,
+  ProfilesPayload,
+  ShoppingPayload,
+  SmokeKind,
+  SmokePayload,
+  Task,
+} from '../shared/types.ts'
 import { api, AuthError } from './api.ts'
+import { forgetTheme, peekTheme, type ThemeId } from './themes.ts'
 import { ArchiveScreen } from './ArchiveScreen.tsx'
 import { CalendarScreen } from './CalendarScreen.tsx'
 import { LoginScreen } from './LoginScreen.tsx'
+import { Float } from './float.tsx'
+import { ShopWindow } from './ShopWindow.tsx'
 import { SmokeWindow } from './SmokeWindow.tsx'
 
 function where(target: string, today: string): string {
@@ -75,13 +91,22 @@ function Planner({
   const [smoke, setSmoke] = useState<SmokePayload | null>(null)
   const [smokeError, setSmokeError] = useState<string | null>(null)
   const [smokePending, setSmokePending] = useState(false)
+  const [shopping, setShopping] = useState<ShoppingPayload | null>(null)
+  const [shoppingError, setShoppingError] = useState<string | null>(null)
+  const [shoppingPending, setShoppingPending] = useState(false)
+  const [profiles, setProfiles] = useState<Profile[] | null>(null)
+  const [profileId, setProfileId] = useState<string | null>(null)
+  const [profileError, setProfileError] = useState<string | null>(null)
   const alive = useRef(true)
+  const profileEpoch = useRef(0)
+  const profileRef = useRef<string | null>(null)
   const loadSeq = useRef(0)
   const writeEpoch = useRef(0)
   const writesInFlight = useRef(0)
   const pendingReload = useRef(false)
-  const loadedRef = useRef<{ from: string; to: string } | null>(null)
+  const loadedRef = useRef<{ from: string; to: string; profile: string } | null>(null)
   const smokeSeq = useRef(0)
+  const shoppingSeq = useRef(0)
   const selectedRef = useRef(selected)
   selectedRef.current = selected
   const days = useMemo(
@@ -106,41 +131,71 @@ function Planner({
     else setError(caught instanceof Error ? caught.message : 'Не сохранилось.')
   }
 
+  function applyProfiles(data: ProfilesPayload) {
+    if (profileRef.current !== data.currentId) {
+      profileEpoch.current += 1
+      writeEpoch.current += 1
+      smokeSeq.current += 1
+      shoppingSeq.current += 1
+      loadSeq.current += 1
+      loadedRef.current = null
+      writesInFlight.current = 0
+      pendingReload.current = false
+      setTasks(null)
+      setSmoke(null)
+      setShopping(null)
+      setGroups(null)
+      setNote(null)
+      setError(null)
+      setSmokeError(null)
+      setShoppingError(null)
+    }
+    profileRef.current = data.currentId
+    setProfiles(data.profiles)
+    setProfileId(data.currentId)
+  }
+
   function rangeToLoad(): { from: string; to: string } {
     const have = loadedRef.current
     const vis = visibleRef.current
-    if (have && vis.from >= have.from && vis.to <= have.to) return have
+    if (have && have.profile === profileRef.current && vis.from >= have.from && vis.to <= have.to) return have
     return vis
   }
 
   const loadSpanRef = useRef<(spanFrom: string, spanTo: string) => Promise<void>>(async () => {})
   loadSpanRef.current = async (spanFrom: string, spanTo: string) => {
+    const profile = profileRef.current
+    if (!profile) return
     const seq = ++loadSeq.current
     const epoch = writeEpoch.current
+    const stamp = profileEpoch.current
     try {
       const data = await api.span(spanFrom, spanTo)
-      if (!alive.current || loadSeq.current !== seq) return
+      if (!alive.current || loadSeq.current !== seq || profileEpoch.current !== stamp) return
+      if (profileRef.current !== profile) return
       if (writeEpoch.current !== epoch) {
         if (writesInFlight.current === 0) void loadSpanRef.current(spanFrom, spanTo)
         else pendingReload.current = true
         return
       }
-      loadedRef.current = { from: data.from, to: data.to }
+      loadedRef.current = { from: data.from, to: data.to, profile }
       setToday(data.today)
       setTasks(data.tasks)
     } catch (caught) {
-      if (!alive.current || loadSeq.current !== seq) return
+      if (!alive.current || loadSeq.current !== seq || profileEpoch.current !== stamp) return
       report(caught)
     }
   }
 
   useEffect(() => {
+    if (!profileId) return
     const have = loadedRef.current
-    if (have && from >= have.from && to <= have.to) return
+    if (have && have.profile === profileId && from >= have.from && to <= have.to) return
     void loadSpanRef.current(from, to)
-  }, [from, to])
+  }, [from, to, profileId])
 
   useEffect(() => {
+    if (!profileId) return
     const day = selected
     const seq = ++smokeSeq.current
     api.smoke(day).then(
@@ -155,7 +210,49 @@ function Planner({
         else setSmokeError(caught instanceof Error ? caught.message : 'Не сохранилось.')
       },
     )
-  }, [selected, onUnauthorized])
+  }, [selected, onUnauthorized, profileId])
+
+  const pullShopping = useCallback(() => {
+    if (!profileId) return
+    const seq = ++shoppingSeq.current
+    setShoppingError(null)
+    api.shopping().then(
+      (data) => {
+        if (!alive.current || shoppingSeq.current !== seq) return
+        setShopping(data)
+        setShoppingError(null)
+      },
+      (caught: unknown) => {
+        if (!alive.current || shoppingSeq.current !== seq) return
+        if (caught instanceof AuthError) onUnauthorized()
+        else setShoppingError(caught instanceof Error ? caught.message : 'Не сохранилось.')
+      },
+    )
+  }, [onUnauthorized, profileId])
+
+  useEffect(() => {
+    pullShopping()
+  }, [pullShopping])
+
+  useEffect(() => {
+    if (view !== 'archive' || !profileId) return
+    const stamp = profileEpoch.current
+    let cancel = false
+    api.archive().then(
+      (data) => {
+        if (cancel || !alive.current || profileEpoch.current !== stamp) return
+        setToday(data.today)
+        setGroups(data.groups)
+      },
+      (caught: unknown) => {
+        if (cancel || !alive.current || profileEpoch.current !== stamp) return
+        report(caught)
+      },
+    )
+    return () => {
+      cancel = true
+    }
+  }, [view, profileId])
 
   function applySmoke(seq: number, day: string, data: SmokePayload) {
     if (!alive.current || smokeSeq.current !== seq || selectedRef.current !== day) return
@@ -165,16 +262,19 @@ function Planner({
 
   async function runSmoke(day: string, run: () => Promise<SmokePayload>) {
     const seq = ++smokeSeq.current
+    const stamp = profileEpoch.current
     setSmokePending(true)
     setSmokeError(null)
     try {
-      applySmoke(seq, day, await run())
+      const data = await run()
+      if (profileEpoch.current !== stamp) return
+      applySmoke(seq, day, data)
     } catch (caught) {
-      if (!alive.current || smokeSeq.current !== seq) return
+      if (!alive.current || smokeSeq.current !== seq || profileEpoch.current !== stamp) return
       if (caught instanceof AuthError) onUnauthorized()
       else setSmokeError(caught instanceof Error ? caught.message : 'Не сохранилось.')
     } finally {
-      if (alive.current && smokeSeq.current === seq) setSmokePending(false)
+      if (alive.current && smokeSeq.current === seq && profileEpoch.current === stamp) setSmokePending(false)
     }
   }
 
@@ -214,20 +314,45 @@ function Planner({
     void loadSpanRef.current(range.from, range.to)
   }
 
+  async function runShopping(run: () => Promise<ShoppingPayload>): Promise<boolean> {
+    const seq = ++shoppingSeq.current
+    const stamp = profileEpoch.current
+    setShoppingPending(true)
+    setShoppingError(null)
+    try {
+      const data = await run()
+      if (!alive.current || shoppingSeq.current !== seq || profileEpoch.current !== stamp) return true
+      setShopping(data)
+      setShoppingError(null)
+      return true
+    } catch (caught) {
+      if (!alive.current || shoppingSeq.current !== seq || profileEpoch.current !== stamp) return false
+      if (caught instanceof AuthError) onUnauthorized()
+      else setShoppingError(caught instanceof Error ? caught.message : 'Не сохранилось.')
+      return false
+    } finally {
+      if (alive.current && shoppingSeq.current === seq && profileEpoch.current === stamp) setShoppingPending(false)
+    }
+  }
+
   async function commit<T>(run: () => Promise<T>, apply: (value: T) => void, forceReload = false): Promise<boolean> {
+    const stamp = profileEpoch.current
     setError(null)
     writesInFlight.current += 1
     writeEpoch.current += 1
     if (forceReload) pendingReload.current = true
     try {
-      apply(await run())
+      const value = await run()
+      if (!alive.current || profileEpoch.current !== stamp) return true
+      apply(value)
       return true
     } catch (caught) {
+      if (profileEpoch.current !== stamp) return false
       report(caught)
       pendingReload.current = true
       return false
     } finally {
-      reloadIfNeeded()
+      if (profileEpoch.current === stamp) reloadIfNeeded()
     }
   }
 
@@ -262,19 +387,45 @@ function Planner({
     setCursor((current) => (monthGrid(current).includes(selected) ? current : selected))
   }
 
-  async function openArchive() {
+  function openArchive() {
     setView('archive')
     setGroups(null)
     setError(null)
-    try {
-      const data = await api.archive()
-      if (!alive.current) return
-      setToday(data.today)
-      setGroups(data.groups)
-    } catch (caught) {
-      report(caught)
-    }
   }
+
+  function loadProfiles() {
+    setProfileError(null)
+    api.profiles().then(
+      async (data) => {
+        if (!alive.current) return
+        const current = data.profiles.find((item) => item.id === data.currentId) ?? data.profiles[0]
+        const local = peekTheme()
+        if (local && current && current.theme === 'paper' && data.profiles.length === 1) {
+          try {
+            const updated = await api.updateProfile(current.id, { theme: local })
+            if (!alive.current) return
+            forgetTheme()
+            applyProfiles(updated)
+            return
+          } catch {
+            if (!alive.current) return
+          }
+        } else if (local) {
+          forgetTheme()
+        }
+        applyProfiles(data)
+      },
+      (caught: unknown) => {
+        if (!alive.current) return
+        if (caught instanceof AuthError) onUnauthorized()
+        else setProfileError(caught instanceof Error ? caught.message : 'Не открылось.')
+      },
+    )
+  }
+
+  useEffect(() => {
+    loadProfiles()
+  }, [])
 
   async function onLogout() {
     try {
@@ -283,6 +434,89 @@ function Planner({
       // Выходим даже если сессия уже погасла.
     }
     onUnauthorized()
+  }
+
+  const profile = profiles?.find((item) => item.id === profileId) ?? null
+  const theme: ThemeId = profile?.theme ?? 'paper'
+  const profileName = profile?.name ?? ''
+
+  async function switchProfile(id: string): Promise<boolean> {
+    if (id === profileId) return true
+    try {
+      applyProfiles(await api.useProfile(id))
+      return true
+    } catch (caught) {
+      report(caught)
+      return false
+    }
+  }
+
+  async function addProfile(name: string): Promise<boolean> {
+    try {
+      applyProfiles(await api.addProfile(name))
+      return true
+    } catch (caught) {
+      report(caught)
+      return false
+    }
+  }
+
+  async function renameProfile(name: string): Promise<boolean> {
+    if (!profileId) return false
+    try {
+      applyProfiles(await api.updateProfile(profileId, { name }))
+      return true
+    } catch (caught) {
+      report(caught)
+      return false
+    }
+  }
+
+  async function deleteProfile(): Promise<boolean> {
+    if (!profileId) return false
+    try {
+      applyProfiles(await api.deleteProfile(profileId))
+      return true
+    } catch (caught) {
+      report(caught)
+      return false
+    }
+  }
+
+  async function changeTheme(next: ThemeId) {
+    if (!profileId || next === theme) return
+    setProfiles((current) => current?.map((item) => (item.id === profileId ? { ...item, theme: next } : item)) ?? current)
+    try {
+      const data = await api.updateProfile(profileId, { theme: next })
+      if (!alive.current) return
+      applyProfiles(data)
+    } catch (caught) {
+      report(caught)
+      try {
+        const data = await api.profiles()
+        if (alive.current) applyProfiles(data)
+      } catch {
+        // Ошибка смены вида уже на экране.
+      }
+    }
+  }
+
+  if (profileError) {
+    return (
+      <main className="page">
+        <p className="note">{profileError}</p>
+        <button type="button" className="carry" onClick={loadProfiles}>
+          ещё раз
+        </button>
+      </main>
+    )
+  }
+  if (!profileId || !profiles || !profile) {
+    return (
+      <main className="page">
+        <p className="empty">Открываю</p>
+      </main>
+    )
   }
 
   if (view === 'archive') {
@@ -304,6 +538,7 @@ function Planner({
           setError(null)
         }}
         onLogout={() => void onLogout()}
+        profileName={profileName}
       />
     )
   }
@@ -356,39 +591,71 @@ function Planner({
         const day = selected
         void commit(() => api.carry(day), absorbCarry, true)
       }}
+      profiles={profiles}
+      profileId={profileId}
+      profileName={profileName}
+      theme={theme}
+      onTheme={(next) => void changeTheme(next)}
+      onSwitchProfile={switchProfile}
+      onAddProfile={addProfile}
+      onRenameProfile={renameProfile}
+      onDeleteProfile={deleteProfile}
     />
-    <SmokeWindow
-      day={selected}
-      today={smoke?.today ?? today}
-      smoke={smoke}
-      error={smokeError}
-      pending={smokePending}
-      onRetry={() => {
-        const day = selected
-        const seq = ++smokeSeq.current
-        setSmokeError(null)
-        api.smoke(day).then(
-          (data) => applySmoke(seq, day, data),
-          (caught: unknown) => {
-            if (!alive.current || smokeSeq.current !== seq) return
-            if (caught instanceof AuthError) onUnauthorized()
-            else setSmokeError(caught instanceof Error ? caught.message : 'Не сохранилось.')
-          },
-        )
-      }}
-      onStock={(patch) => {
-        const day = selected
-        void runSmoke(day, () => api.smokeStock(day, patch))
-      }}
-      onBreak={(kind: SmokeKind) => {
-        const day = selected
-        void runSmoke(day, () => api.smokeBreak(day, kind))
-      }}
-      onUndo={(id) => {
-        const day = selected
-        void runSmoke(day, () => api.smokeUndo(day, id))
-      }}
-    />
+    {createPortal(
+      <div className="side-stack">
+        <Float id="smoke" profileId={profileId}>
+        <SmokeWindow
+          day={selected}
+          today={smoke?.today ?? today}
+          smoke={smoke}
+          error={smokeError}
+          pending={smokePending}
+          onRetry={() => {
+            const day = selected
+            const seq = ++smokeSeq.current
+            setSmokeError(null)
+            api.smoke(day).then(
+              (data) => applySmoke(seq, day, data),
+              (caught: unknown) => {
+                if (!alive.current || smokeSeq.current !== seq) return
+                if (caught instanceof AuthError) onUnauthorized()
+                else setSmokeError(caught instanceof Error ? caught.message : 'Не сохранилось.')
+              },
+            )
+          }}
+          onStock={(patch) => {
+            const day = selected
+            void runSmoke(day, () => api.smokeStock(day, patch))
+          }}
+          onBreak={(kind: SmokeKind) => {
+            const day = selected
+            void runSmoke(day, () => api.smokeBreak(day, kind))
+          }}
+          onUndo={(id) => {
+            const day = selected
+            void runSmoke(day, () => api.smokeUndo(day, id))
+          }}
+        />
+        </Float>
+        <Float id="shop" profileId={profileId}>
+        <ShopWindow
+          shopping={shopping}
+          error={shoppingError}
+          pending={shoppingPending}
+          onRetry={pullShopping}
+          onAddGrocery={(title) => runShopping(() => api.addGrocery(title))}
+          onRenameGrocery={(id, title) => void runShopping(() => api.renameGrocery(id, title))}
+          onBuyGrocery={(id) => void runShopping(() => api.buyGrocery(id))}
+          onAddOrder={(title, shop) => runShopping(() => api.addOrder(title, shop))}
+          onUpdateOrder={(id, patch: { title?: string; shop?: string; status?: OrderStatus }) =>
+            void runShopping(() => api.updateOrder(id, patch))
+          }
+          onDeleteOrder={(id) => void runShopping(() => api.deleteOrder(id))}
+        />
+        </Float>
+      </div>,
+      document.body,
+    )}
     </>
   )
 }

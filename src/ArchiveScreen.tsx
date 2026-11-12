@@ -9,12 +9,13 @@ type Props = {
   onOpenDay: (day: string) => void
   onBack: () => void
   onLogout: () => void
+  profileName: string
 }
 
-export function ArchiveScreen({ groups, error, authRequired, onOpenDay, onBack, onLogout }: Props) {
+export function ArchiveScreen({ groups, error, authRequired, onOpenDay, onBack, onLogout, profileName }: Props) {
   useEffect(() => {
-    document.title = 'Сделанное · Дни'
-  }, [])
+    document.title = `Сделанное · ${profileName}`
+  }, [profileName])
 
   return (
     <main className="page">
@@ -30,6 +31,7 @@ export function ArchiveScreen({ groups, error, authRequired, onOpenDay, onBack, 
           <span />
         )}
       </div>
+      <p className="rel">{profileName}</p>
       <h1 className="weekday">Сделанное</h1>
       {error ? <p className="note">{error}</p> : null}
       {groups === null && !error ? <p className="empty">Открываю</p> : null}

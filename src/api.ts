@@ -2,8 +2,12 @@ import type {
   ArchivePayload,
   CarryPayload,
   DayPayload,
+  OrderStatus,
   Priority,
+  Profile,
+  ProfilesPayload,
   SessionPayload,
+  ShoppingPayload,
   SmokeKind,
   SmokePayload,
   SpanPayload,
@@ -41,6 +45,13 @@ export const api = {
   login: (password: string) =>
     request<{ ok: true }>('/api/login', { method: 'POST', body: JSON.stringify({ password }) }),
   logout: () => request<{ ok: true }>('/api/logout', { method: 'POST' }),
+  profiles: () => request<ProfilesPayload>('/api/profiles'),
+  addProfile: (name: string) =>
+    request<ProfilesPayload>('/api/profiles', { method: 'POST', body: JSON.stringify({ name }) }),
+  updateProfile: (id: string, patch: { name?: string; theme?: Profile['theme'] }) =>
+    request<ProfilesPayload>(`/api/profiles/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
+  deleteProfile: (id: string) => request<ProfilesPayload>(`/api/profiles/${id}`, { method: 'DELETE' }),
+  useProfile: (id: string) => request<ProfilesPayload>(`/api/profiles/${id}/use`, { method: 'POST' }),
   day: (day: string) => request<DayPayload>(`/api/days/${day}`),
   span: (from: string, to: string) => request<SpanPayload>(`/api/span/${from}/${to}`),
   add: (day: string, title: string) =>
@@ -74,4 +85,15 @@ export const api = {
   smokeBreak: (day: string, kind: SmokeKind) =>
     request<SmokePayload>(`/api/smoke/${day}`, { method: 'POST', body: JSON.stringify({ kind }) }),
   smokeUndo: (day: string, id: string) => request<SmokePayload>(`/api/smoke/${day}/breaks/${id}`, { method: 'DELETE' }),
+  shopping: () => request<ShoppingPayload>('/api/shopping'),
+  addGrocery: (title: string) =>
+    request<ShoppingPayload>('/api/shopping/groceries', { method: 'POST', body: JSON.stringify({ title }) }),
+  renameGrocery: (id: string, title: string) =>
+    request<ShoppingPayload>(`/api/shopping/groceries/${id}`, { method: 'PATCH', body: JSON.stringify({ title }) }),
+  buyGrocery: (id: string) => request<ShoppingPayload>(`/api/shopping/groceries/${id}`, { method: 'DELETE' }),
+  addOrder: (title: string, shop: string) =>
+    request<ShoppingPayload>('/api/shopping/orders', { method: 'POST', body: JSON.stringify({ title, shop }) }),
+  updateOrder: (id: string, patch: { title?: string; shop?: string; status?: OrderStatus }) =>
+    request<ShoppingPayload>(`/api/shopping/orders/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
+  deleteOrder: (id: string) => request<ShoppingPayload>(`/api/shopping/orders/${id}`, { method: 'DELETE' }),
 }
