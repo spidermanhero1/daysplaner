@@ -1,4 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react'
+import { useSwipeBack } from './swipe.ts'
 import { relativeLabel, shortDateOf } from '../shared/dates.ts'
 import { PACK_SIZE, SMOKE_MAX, type SmokeKind, type SmokePayload } from '../shared/types.ts'
 
@@ -141,6 +142,13 @@ export function SmokeWindow({
     })
   }
 
+  function shut() {
+    setOpen(false)
+    localStorage.setItem(OPEN_KEY, '0')
+  }
+
+  const swipeRef = useSwipeBack<HTMLElement>(open, shut)
+
   const scheduleNote = [
     dayCigs ? countLabel(dayCigs, 'сигарета', 'сигареты', 'сигарет') : null,
     dayJoints ? countLabel(dayJoints, 'шишка', 'шишки', 'шишек') : null,
@@ -242,7 +250,7 @@ export function SmokeWindow({
   }
 
   return (
-    <aside className={open ? 'smoke' : 'smoke is-shut'} aria-label="Перекуры" aria-busy={pending || !ready}>
+    <aside ref={swipeRef} className={open ? 'smoke' : 'smoke is-shut'} aria-label="Перекуры" aria-busy={pending || !ready}>
       <header className="smoke-head">
         <div>
           <p className="smoke-kicker">{place}</p>

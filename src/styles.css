@@ -362,9 +362,44 @@ button:focus-visible, input:focus-visible {
   * { scroll-behavior: auto !important; transition: none !important; }
 }
 
-body:has(.cal) {
+body:has(.cal),
+body:has(.archive) {
   height: 100dvh;
   overflow: hidden;
+}
+
+.archive {
+  position: fixed;
+  inset: 0;
+  z-index: 6;
+  height: 100dvh;
+  overflow: auto;
+  background: var(--bg);
+  color: var(--ink);
+  padding:
+    calc(0.85rem + env(safe-area-inset-top))
+    calc(1rem + env(safe-area-inset-right))
+    calc(1.4rem + env(safe-area-inset-bottom))
+    calc(1rem + env(safe-area-inset-left));
+  touch-action: pan-y;
+}
+
+.archive-frame {
+  width: min(40rem, 100%);
+  margin: 0 auto;
+}
+
+.archive .top { margin-bottom: 0.85rem; }
+
+.archive .weekday { font-size: clamp(2rem, 5vw, 2.75rem); }
+
+.archive .archive-day {
+  width: 100%;
+  margin-top: 0.85rem;
+  padding: 0.7rem 0.85rem;
+  border: 1px solid var(--line);
+  border-radius: 0.9rem;
+  text-align: left;
 }
 
 .cal {
@@ -980,6 +1015,33 @@ span.pane-handle { cursor: default; }
 }
 
 .cal-day.is-weekend .cal-num { color: var(--important); }
+
+.cal-pips {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 0.18rem;
+  margin-top: 0.12rem;
+}
+
+.cal-pips i {
+  width: 0.34rem;
+  height: 0.34rem;
+  border-radius: 999px;
+  background: var(--ink);
+}
+
+.cal-pips i.is-hot { background: var(--important); }
+
+.cal-pips i.is-done { opacity: 0.35; }
+
+.cal-pips span {
+  color: var(--muted);
+  font-size: 0.62rem;
+  font-weight: 650;
+  line-height: 1;
+}
 
 .cal-day.is-outside .cal-num { opacity: 0.45; }
 
@@ -2178,13 +2240,13 @@ html.is-dragging-desk { user-select: none; }
 .shop-x:disabled,
 .shop-status button:disabled { opacity: 0.35; cursor: default; }
 
-@media (max-width: 720px) {
+@media (max-width: 999px) {
   .cal.is-week .cal-dows { display: none; }
   .cal.is-week .cal-weeks {
     display: block;
     overflow: auto;
     overscroll-behavior: contain;
-    padding-bottom: calc(12rem + env(safe-area-inset-bottom));
+    padding-bottom: 0.75rem;
   }
   .cal.is-week .cal-week {
     display: flex;
@@ -2207,7 +2269,7 @@ html.is-dragging-desk { user-select: none; }
 
 .cal.is-touch .cal-board { touch-action: pan-y; }
 
-.cal.is-touch.is-month .cal-split { padding-bottom: 12.25rem; }
+.cal.is-touch.is-month:has(.cal-dock) .cal-split { padding-bottom: 12.25rem; }
 
 .cal.is-touch .cal-inline input {
   border: 1px solid var(--line);
@@ -2934,7 +2996,7 @@ html[data-theme='ether'] {
 .cal[data-theme] .pane-task { border-radius: 0.95rem; }
 
 .cal[data-theme] .pane.is-sheet {
-  background: var(--bg);
+  background: transparent;
   backdrop-filter: none;
   border-radius: 1rem 0 0 1rem;
   border-right: 0;
@@ -3072,5 +3134,236 @@ html[data-theme] .desk.is-dragging > :is(.smoke, .shop, .purse) {
   }
 
   html[data-theme] :is(.smoke, .shop, .purse)::before,
-  html[data-theme] :is(.smoke, .shop, .purse)::after { display: none; }
+  html[data-theme] :is(.smoke, .shop, .purse)::after,
+  html[data-theme] .archive::before,
+  html[data-theme] .archive::after,
+  html[data-theme] .pane.is-sheet::before,
+  html[data-theme] .pane.is-sheet::after { display: none; }
+
+  html[data-theme] .archive,
+  html[data-theme] .pane.is-sheet { background: var(--bg); }
+}
+
+@media (max-width: 999px) {
+  .keys { display: none; }
+
+  .page { touch-action: pan-y; }
+
+  .cal-heading {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .cal.is-touch:not(:has(.cal-dock)) {
+    padding-bottom: calc(4.8rem + env(safe-area-inset-bottom));
+  }
+
+  .cal.is-touch.is-month .cal-head { justify-content: center; }
+
+  .cal.is-touch.is-month .cal-day {
+    align-items: center;
+    padding: 0.12rem 0.16rem 0.16rem;
+  }
+
+  .desk.is-placed,
+  .desk.is-placed:has(> .is-shut) {
+    position: relative !important;
+    left: auto !important;
+    top: auto !important;
+    width: max-content !important;
+    max-width: 100% !important;
+    z-index: auto !important;
+  }
+
+  .side-stack {
+    top: auto;
+    right: max(0.55rem, env(safe-area-inset-right));
+    bottom: calc(0.45rem + env(safe-area-inset-bottom));
+    left: max(0.55rem, env(safe-area-inset-left));
+    width: auto;
+    max-width: none;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    justify-content: flex-start;
+  }
+
+  body:has(.cal-dock) .side-stack {
+    bottom: calc(8.8rem + env(safe-area-inset-bottom));
+  }
+
+  body:has(.cal-dock.has-task) .side-stack {
+    bottom: calc(13.2rem + env(safe-area-inset-bottom));
+  }
+
+  body:has(.pane.is-sheet) .side-stack { visibility: hidden; }
+
+  .desk:has(> :is(.smoke, .shop, .purse):not(.is-shut)) {
+    position: fixed !important;
+    z-index: 8 !important;
+    inset: 0 !important;
+    width: auto !important;
+    max-width: none !important;
+    height: auto !important;
+    padding:
+      env(safe-area-inset-top)
+      env(safe-area-inset-right)
+      env(safe-area-inset-bottom)
+      env(safe-area-inset-left);
+  }
+
+  .desk:has(> :is(.smoke, .shop, .purse):not(.is-shut)) > :is(.smoke, .shop, .purse) {
+    width: 100%;
+    height: 100%;
+    max-height: none;
+    border-radius: 0;
+    box-shadow: none;
+    touch-action: pan-y;
+  }
+
+  .desk:has(> :is(.smoke, .shop, .purse):not(.is-shut)) .smoke-body { flex: 1; }
+
+  .pane.is-sheet {
+    left: 0;
+    right: 0;
+    width: auto;
+    border-left: 0;
+    border-radius: 0;
+    box-shadow: none;
+    touch-action: pan-y;
+    animation: sheet-in 220ms ease;
+  }
+
+  .cal[data-theme] .pane.is-sheet {
+    border-radius: 0;
+    border-left: 0;
+    border-right: 0;
+  }
+
+  .pane.is-sheet :is(.pane-scroll, .pane-head, .pane-list, .pane-row, .pane-main, .pane-name) {
+    touch-action: pan-y;
+  }
+}
+
+@media (max-width: 999px) and (min-width: 680px) {
+  .pane.is-sheet { align-items: center; }
+
+  .pane.is-sheet > .pane-head,
+  .pane.is-sheet > .pane-scroll,
+  .pane.is-sheet > .pane-compose {
+    width: min(40rem, 100%);
+  }
+
+  .desk:has(> :is(.smoke, .shop, .purse):not(.is-shut)) > :is(.smoke, .shop, .purse) {
+    align-items: center;
+  }
+
+  .desk:has(> :is(.smoke, .shop, .purse):not(.is-shut)) > :is(.smoke, .shop, .purse) > * {
+    width: min(40rem, 100%);
+  }
+}
+
+html[data-theme] .archive,
+html[data-theme] .pane.is-sheet {
+  isolation: isolate;
+  background: transparent;
+}
+
+html[data-theme] .archive::before,
+html[data-theme] .pane.is-sheet::before,
+html[data-theme] .archive::after,
+html[data-theme] .pane.is-sheet::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+html[data-theme] .archive::before,
+html[data-theme] .archive::after { position: fixed; }
+
+html[data-theme] .archive::before,
+html[data-theme] .pane.is-sheet::before {
+  z-index: 0;
+  inset: -8%;
+  background-image: var(--photo);
+  background-repeat: no-repeat;
+  background-size: cover;
+  background-position: var(--photo-pos, center);
+  filter: blur(2px) saturate(1.15);
+}
+
+html[data-theme] .archive::after,
+html[data-theme] .pane.is-sheet::after {
+  z-index: 0;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--bg) 48%, transparent) 0,
+    color-mix(in srgb, var(--bg) 82%, transparent) 7rem,
+    color-mix(in srgb, var(--bg) 94%, transparent)
+  );
+}
+
+html[data-theme] .archive-frame,
+html[data-theme] .pane.is-sheet > * {
+  position: relative;
+  z-index: 1;
+}
+
+html[data-tone='light'] .archive::after,
+html[data-tone='light'] .pane.is-sheet::after {
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--bg) 28%, transparent) 0,
+    color-mix(in srgb, var(--bg) 72%, transparent) 6rem,
+    color-mix(in srgb, var(--bg) 94%, transparent)
+  );
+}
+
+@media (min-width: 1000px) {
+  html[data-theme] .archive-frame {
+    margin-top: 1.25rem;
+    margin-bottom: 1.25rem;
+    padding: 1.15rem 1.35rem 1.8rem;
+    border: 1px solid var(--line);
+    border-radius: 1rem;
+    background: color-mix(in srgb, var(--bg) 88%, transparent);
+  }
+}
+
+@media (max-width: 999px) and (max-height: 520px) {
+  .cal-tools {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scrollbar-width: none;
+  }
+
+  .cal.is-touch:not(:has(.cal-dock)) {
+    padding-bottom: calc(3.6rem + env(safe-area-inset-bottom));
+  }
+
+  .cal.is-month .cal-weeks {
+    display: flex;
+    flex-direction: column;
+    overflow: auto;
+    overscroll-behavior: contain;
+  }
+
+  .cal.is-month .cal-week {
+    flex: none;
+    height: auto;
+    min-height: 2.75rem;
+  }
+}
+
+@keyframes sheet-in {
+  from { transform: translate3d(18%, 0, 0); }
+  to { transform: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pane.is-sheet { animation: none; }
 }

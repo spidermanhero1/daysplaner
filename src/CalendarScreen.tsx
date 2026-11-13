@@ -141,7 +141,7 @@ export function CalendarScreen({
   onDeleteProfile,
 }: Props) {
   const narrow = useMedia('(max-width: 720px)')
-  const split = useMedia('(min-width: 840px)')
+  const split = useMedia('(min-width: 1000px)')
   const roomy = useMedia('(min-width: 1400px)')
   const [sheet, setSheet] = useState<'day' | 'task' | null>(null)
   const [openedId, setOpenedId] = useState<string | null>(null)
@@ -207,36 +207,10 @@ export function CalendarScreen({
   const showTask = Boolean(openedTask) && (roomy || split || sheet === 'task')
   const dragOnCalendar = !showDay
   const place = relativeLabel(selected, today) ?? shortDateOf(selected)
-  const tone = themeTone(theme)
-  if (theme === 'paper') {
-    delete document.documentElement.dataset.theme
-    delete document.documentElement.dataset.tone
-  } else {
-    document.documentElement.dataset.theme = theme
-    if (tone) document.documentElement.dataset.tone = tone
-    else delete document.documentElement.dataset.tone
-  }
 
   useEffect(() => {
     document.title = `${title} · ${profileName}`
   }, [title, profileName])
-
-  useEffect(() => {
-    const root = document.documentElement
-    const meta = document.querySelector('meta[name="theme-color"]')
-    const current = THEMES.find((item) => item.id === theme) ?? THEMES[0]
-    const tone = themeTone(theme)
-    if (theme === 'paper') delete root.dataset.theme
-    else root.dataset.theme = theme
-    if (tone) root.dataset.tone = tone
-    else delete root.dataset.tone
-    meta?.setAttribute('content', current.color)
-    return () => {
-      delete root.dataset.theme
-      delete root.dataset.tone
-      meta?.setAttribute('content', '#f3eadc')
-    }
-  }, [theme])
 
   useEffect(() => {
     if (!themesOpen && !profilesOpen) return
@@ -391,7 +365,7 @@ export function CalendarScreen({
       if (event.altKey) return
       if (event.code === 'ArrowLeft' || event.code === 'ArrowRight' || event.code === 'ArrowUp' || event.code === 'ArrowDown') {
         event.preventDefault()
-        const column = narrow && zoom === 'week'
+        const column = !split && zoom === 'week'
         const delta =
           event.code === 'ArrowLeft' ? -1
           : event.code === 'ArrowRight' ? 1
@@ -472,7 +446,6 @@ export function CalendarScreen({
     split,
     selected,
     days,
-    narrow,
     zoom,
     onSelect,
     onCursor,
@@ -614,6 +587,7 @@ export function CalendarScreen({
   }
 
   const touch = !split
+  const phoneMonth = touch && zoom === 'month'
 
   return (
     <main
@@ -780,24 +754,45 @@ export function CalendarScreen({
                           onClick={(event) => {
                             event.stopPropagation()
                             if (split) openAdd(day)
+                            else if (phoneMonth) openDay(day)
                             else blank(day)
                           }}
-                          aria-label={`${Number(day.slice(8, 10))}, ${weekdayOf(day)}`}
+                          aria-label={
+                            open.length > 0
+                              ? `${Number(day.slice(8, 10))}, ${weekdayOf(day)}, дел ${open.length}`
+                              : `${Number(day.slice(8, 10))}, ${weekdayOf(day)}`
+                          }
                         >
                           {Number(day.slice(8, 10))}
                         </button>
-                        {narrow && zoom === 'week' ? (
+                        {touch && zoom === 'week' ? (
                           <span className="cal-wname">
                             {weekdayOf(day)}
                             {day === today ? <span className="cal-rel">сегодня</span> : null}
                           </span>
                         ) : null}
-                        {touch && !docked && sheet === null && day === selected ? (
+                        {touch && !phoneMonth && !docked && sheet === null && day === selected ? (
                           <button type="button" className="cal-open" onClick={() => openDay(day)}>
                             Открыть
                           </button>
                         ) : null}
                       </div>
+                      {phoneMonth ? (
+                        open.length > 0 || done.length > 0 ? (
+                          <div className="cal-pips" aria-hidden="true">
+                            {(open.length > 0 ? open : done).slice(0, 3).map((task) => (
+                              <i
+                                key={task.id}
+                                className={
+                                  task.done ? 'is-done' : task.priority === 'important' ? 'is-hot' : undefined
+                                }
+                              />
+                            ))}
+                            {open.length > 3 ? <span>+{open.length - 3}</span> : null}
+                          </div>
+                        ) : null
+                      ) : (
+                      <>
                       <div className="cal-scroll">
                         {open.length > 0 ? (
                           dragOnCalendar ? (
@@ -846,6 +841,8 @@ export function CalendarScreen({
                           onSubmit={(event) => void submit(day, event)}
                         />
                       ) : null}
+                      </>
+                      )}
                     </div>
                   )
                 })}
@@ -1009,6 +1006,7 @@ export function CalendarScreen({
     if (!(target instanceof Element)) return
     if (target.closest('button, input, label, a, textarea, [data-task]')) return
     if (split) openAdd(day)
+    else if (phoneMonth) openDay(day)
     else blank(day)
   }
 

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
+import { useSwipeBack } from './swipe.ts'
 import { addDays, addMonths, monthStart, monthTitleOf, relativeLabel, shortDateOf, startOfWeek, todayKey } from '../shared/dates.ts'
 import {
   WALLET_ACCOUNT_MAX,
@@ -317,6 +318,13 @@ export function WalletWindow({
     })
   }
 
+  function fold() {
+    setOpen(false)
+    localStorage.setItem(OPEN_KEY, '0')
+  }
+
+  const swipeRef = useSwipeBack<HTMLElement>(open, fold)
+
   function choose(id: string) {
     setFilter(id)
     setPicked(id)
@@ -620,7 +628,7 @@ export function WalletWindow({
   }
 
   return (
-    <aside className={open ? 'purse is-wide' : 'purse is-shut'} aria-label="Кошелёк" aria-busy={pending}>
+    <aside ref={swipeRef} className={open ? 'purse is-wide' : 'purse is-shut'} aria-label="Кошелёк" aria-busy={pending}>
       <header className="smoke-head">
         <div>
           <h2>Кошелёк</h2>

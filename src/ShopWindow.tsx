@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
+import { useSwipeBack } from './swipe.ts'
 import { DEFAULT_SHOP, type OrderStatus, type ShoppingPayload } from '../shared/types.ts'
 
 const OPEN_KEY = 'plandays.shop'
@@ -149,6 +150,13 @@ export function ShopWindow({
     })
   }
 
+  function shut() {
+    setOpen(false)
+    localStorage.setItem(OPEN_KEY, '0')
+  }
+
+  const swipeRef = useSwipeBack<HTMLElement>(open, shut)
+
   async function submitGrocery(event: FormEvent) {
     event.preventDefault()
     const title = grocery.trim()
@@ -285,7 +293,7 @@ export function ShopWindow({
   }
 
   return (
-    <aside className={open ? 'shop' : 'shop is-shut'} aria-label="Покупки" aria-busy={pending}>
+    <aside ref={swipeRef} className={open ? 'shop' : 'shop is-shut'} aria-label="Покупки" aria-busy={pending}>
       <header className="smoke-head">
         <div>
           <h2>Покупки</h2>

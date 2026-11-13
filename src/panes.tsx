@@ -3,6 +3,7 @@ import { CSS } from '@dnd-kit/utilities'
 import { useEffect, useRef, useState, type CSSProperties, type FormEvent, type ReactNode, type RefObject } from 'react'
 import { dateLineOf, relativeLabel, weekdayOf } from '../shared/dates.ts'
 import type { Priority, Task } from '../shared/types.ts'
+import { useSwipeBack } from './swipe.ts'
 
 export function sortTasks(list: Task[]): Task[] {
   return [...list].sort((a, b) => {
@@ -88,8 +89,10 @@ export function DayPane({
   const open = ordered.filter((task) => !task.done)
   const done = ordered.filter((task) => task.done)
   const place = relativeLabel(day, today)
+  const swipeRef = useSwipeBack<HTMLElement>(sheet, onClose)
   return (
     <aside
+      ref={swipeRef}
       className={sheet ? 'pane pane-day is-sheet' : 'pane pane-day'}
       aria-label={weekdayOf(day)}
       aria-hidden={covered ? true : undefined}
@@ -217,6 +220,7 @@ export function TaskPane({
   const done = steps.filter((step) => step.done)
   const note = stepNote(steps)
   const place = relativeLabel(day, today) ?? dateLineOf(day)
+  const swipeRef = useSwipeBack<HTMLElement>(sheet, onClose)
 
   useEffect(() => {
     setDraft('')
@@ -252,7 +256,7 @@ export function TaskPane({
   }
 
   return (
-    <aside className={sheet ? 'pane pane-task is-sheet' : 'pane pane-task'} aria-label={task.title}>
+    <aside ref={swipeRef} className={sheet ? 'pane pane-task is-sheet' : 'pane pane-task'} aria-label={task.title}>
       <header className="pane-head">
         <button type="button" className="text pane-back" onClick={onClose}>
           {closeLabel}

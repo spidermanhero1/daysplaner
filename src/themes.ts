@@ -39,3 +39,21 @@ export function forgetTheme() {
     // нечего забывать
   }
 }
+
+export function applyTheme(theme: ThemeId) {
+  const root = document.documentElement
+  const tone = themeTone(theme)
+  if (theme === 'paper') {
+    delete root.dataset.theme
+    delete root.dataset.tone
+    return
+  }
+  root.dataset.theme = theme
+  if (tone) root.dataset.tone = tone
+  else delete root.dataset.tone
+}
+
+export function clearTheme() {
+  delete document.documentElement.dataset.theme
+  delete document.documentElement.dataset.tone
+}

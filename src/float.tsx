@@ -153,6 +153,7 @@ export function Float({ id, profileId, children }: { id: string; profileId: stri
 
   function onPointerDown(event: ReactPointerEvent<HTMLDivElement>) {
     if (event.button !== 0) return
+    if (window.matchMedia('(max-width: 999px)').matches) return
     const nextZ = raise()
     const target = event.target
     if (!(target instanceof Element)) return

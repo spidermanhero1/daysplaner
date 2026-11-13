@@ -26,7 +26,7 @@ import type {
   WalletPayload,
 } from '../shared/types.ts'
 import { api, AuthError } from './api.ts'
-import { forgetTheme, peekTheme, type ThemeId } from './themes.ts'
+import { applyTheme, clearTheme, forgetTheme, peekTheme, THEMES, type ThemeId } from './themes.ts'
 import { ArchiveScreen } from './ArchiveScreen.tsx'
 import { CalendarScreen } from './CalendarScreen.tsx'
 import { LoginScreen } from './LoginScreen.tsx'
@@ -493,6 +493,21 @@ function Planner({
   const profile = profiles?.find((item) => item.id === profileId) ?? null
   const theme: ThemeId = profile?.theme ?? 'paper'
   const profileName = profile?.name ?? ''
+  applyTheme(theme)
+
+  useEffect(() => {
+    applyTheme(theme)
+    const meta = document.querySelector('meta[name="theme-color"]')
+    const current = THEMES.find((item) => item.id === theme) ?? THEMES[0]
+    meta?.setAttribute('content', current.color)
+  }, [theme])
+
+  useEffect(() => {
+    return () => {
+      clearTheme()
+      document.querySelector('meta[name="theme-color"]')?.setAttribute('content', '#f3eadc')
+    }
+  }, [])
 
   async function switchProfile(id: string): Promise<boolean> {
     if (id === profileId) return true
