@@ -804,7 +804,7 @@ export function CalendarScreen({
                             <SortableContext items={open.map((task) => task.id)} strategy={verticalListSortingStrategy}>
                               <ul className="cal-tasks">
                                 {open.map((task) => (
-                                  <OpenChip key={task.id} {...chipProps(day, task)} titleOpens={split} showSteps={touch && !docked} />
+                                  <OpenChip key={task.id} {...chipProps(day, task)} showSteps={zoom === 'week'} />
                                 ))}
                               </ul>
                             </SortableContext>
@@ -814,8 +814,7 @@ export function CalendarScreen({
                                 <TaskLine
                                   key={task.id}
                                   {...chipProps(day, task)}
-                                  titleOpens={split}
-                                  showSteps={touch && !docked}
+                                  showSteps={zoom === 'week'}
                                   leading={<span className="chip-handle" />}
                                 />
                               ))}
@@ -825,7 +824,12 @@ export function CalendarScreen({
                         {done.length > 0 ? (
                           <ul className="cal-tasks cal-done">
                             {done.map((task) => (
-                              <TaskLine key={task.id} {...chipProps(day, task)} leading={<span className="chip-handle" />} />
+                              <TaskLine
+                                key={task.id}
+                                {...chipProps(day, task)}
+                                showSteps={zoom === 'week'}
+                                leading={<span className="chip-handle" />}
+                              />
                             ))}
                           </ul>
                         ) : null}
@@ -1097,7 +1101,6 @@ type LineProps = {
   opened?: boolean
   hint?: string
   canEdit: boolean
-  titleOpens?: boolean
   showSteps?: boolean
   onPick: () => void
   onOpen?: () => void
@@ -1113,7 +1116,6 @@ function TaskLine({
   opened,
   hint,
   canEdit,
-  titleOpens = true,
   showSteps = false,
   onPick,
   onOpen,
@@ -1200,6 +1202,7 @@ function TaskLine({
           }}
           aria-label={task.done ? 'Вернуть в список' : 'Сделано'}
         />
+        <span className="chip-box" aria-hidden="true" />
       </label>
       {task.priority === 'important' ? <span className="chip-mark" aria-hidden="true" /> : null}
       {editing ? (
@@ -1219,10 +1222,6 @@ function TaskLine({
           className="chip-title"
           title={hint ? `${task.title}, ${hint}` : task.title}
           onClick={() => {
-            if (titleOpens && onOpen) {
-              onOpen()
-              return
-            }
             if (picked && canEdit) setEditing(true)
             else onPick()
           }}
@@ -1230,8 +1229,11 @@ function TaskLine({
           {task.title}
         </button>
       )}
-      {hint ? <span className="chip-subs">{hint}</span> : null}
-      {showSteps && picked && onOpen ? (
+      {hint && onOpen ? (
+        <button type="button" className="chip-subs" onClick={onOpen} aria-label={`Шаги, ${hint}`}>
+          {hint}
+        </button>
+      ) : showSteps && picked && onOpen ? (
         <button type="button" className="chip-open" onClick={onOpen}>
           шаги
         </button>

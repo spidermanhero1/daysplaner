@@ -26,10 +26,19 @@ function stepNote(list: Task[]): string | null {
   return `${done} из ${list.length}`
 }
 
+function stepPreview(list: Task[]): string | null {
+  if (list.length === 0) return null
+  const open = list.filter((task) => !task.done)
+  if (open.length === 0) return 'все шаги сделаны'
+  const shown = open.slice(0, 2).map((task) => task.title)
+  const rest = open.length - shown.length
+  return rest > 0 ? `${shown.join(' · ')} · ещё ${rest}` : shown.join(' · ')
+}
+
 type RowProps = {
   task: Task
   open: boolean
-  mark?: string | null
+  steps?: Task[]
   showPriority?: boolean
   onOpen?: () => void
   onToggle: (done: boolean) => void
@@ -106,7 +115,7 @@ export function DayPane({
                   key={task.id}
                   task={task}
                   open={task.id === openedId}
-                  mark={stepMark(stepsOf(task.id))}
+                  steps={stepsOf(task.id)}
                   showPriority
                   onOpen={() => onOpenTask(task.id)}
                   onToggle={(next) => onToggle(task.id, next)}
@@ -127,7 +136,7 @@ export function DayPane({
                   key={task.id}
                   task={task}
                   open={task.id === openedId}
-                  mark={stepMark(stepsOf(task.id))}
+                  steps={stepsOf(task.id)}
                   showPriority
                   onOpen={() => onOpenTask(task.id)}
                   onToggle={(next) => onToggle(task.id, next)}
@@ -372,7 +381,7 @@ function SortableRow(props: RowProps) {
 function PaneRow({
   task,
   open,
-  mark,
+  steps = [],
   showPriority,
   onOpen,
   onToggle,
@@ -415,6 +424,8 @@ function PaneRow({
   if (task.priority === 'important') names.push('is-important')
   if (task.done) names.push('is-done')
   if (open) names.push('is-open')
+  const doneCount = steps.filter((item) => item.done).length
+  const preview = stepPreview(steps)
 
   return (
     <li ref={setNodeRef} className={names.join(' ')} style={style} data-id={task.id}>
@@ -426,54 +437,79 @@ function PaneRow({
           onChange={(event) => onToggle(event.target.checked)}
           aria-label={task.done ? 'Вернуть в список' : 'Сделано'}
         />
+        <span className="pane-box" aria-hidden="true" />
       </label>
-      {editing ? (
-        <input
-          className="pane-input"
-          value={value}
-          onChange={(event) => setValue(event.target.value)}
-          onBlur={commit}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter') {
-              event.preventDefault()
-              event.currentTarget.blur()
-            }
-            if (event.key === 'Escape') {
-              skipSave.current = true
-              setValue(task.title)
-              event.currentTarget.blur()
-            }
-          }}
-          aria-label="Название"
-          autoFocus
-          maxLength={500}
-        />
-      ) : (
-        <button type="button" className="pane-name" onClick={() => (onOpen ? onOpen() : setEditing(true))}>
-          {task.title}
-        </button>
-      )}
-      {mark ? (
-        <button type="button" className="pane-mark" onClick={onOpen} aria-label={`Подзадачи, ${mark}`}>
-          {mark}
-        </button>
-      ) : onOpen ? (
-        <span className="pane-mark" />
-      ) : null}
-      {showPriority ? (
-        <button
-          type="button"
-          className={task.priority === 'important' ? 'pane-pri is-on' : 'pane-pri'}
-          aria-pressed={task.priority === 'important'}
-          aria-label={task.priority === 'important' ? 'Снять важность' : 'Отметить важным'}
-          onClick={onPriority}
-        >
-          важно
-        </button>
-      ) : null}
-      <button type="button" className="pane-x" aria-label="Убрать" onClick={onDelete}>
-        ×
-      </button>
+      <div className="pane-main">
+        <div className="pane-line">
+          {editing ? (
+            <input
+              className="pane-input"
+              value={value}
+              onChange={(event) => setValue(event.target.value)}
+              onBlur={commit}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                  event.preventDefault()
+                  event.currentTarget.blur()
+                }
+                if (event.key === 'Escape') {
+                  skipSave.current = true
+                  setValue(task.title)
+                  event.currentTarget.blur()
+                }
+              }}
+              aria-label="Название"
+              autoFocus
+              maxLength={500}
+            />
+          ) : (
+            <button type="button" className="pane-name" onClick={() => setEditing(true)}>
+              {task.title}
+            </button>
+          )}
+          {editing ? null : <span className="pane-gap" />}
+          {showPriority ? (
+            <button
+              type="button"
+              className={task.priority === 'important' ? 'pane-pri is-on' : 'pane-pri'}
+              aria-pressed={task.priority === 'important'}
+              aria-label={task.priority === 'important' ? 'Снять важность' : 'Отметить важным'}
+              onClick={onPriority}
+            >
+              важно
+            </button>
+          ) : null}
+          <button type="button" className="pane-x" aria-label="Убрать" onClick={onDelete}>
+            ×
+          </button>
+        </div>
+        {onOpen ? (
+          <>
+            {preview ? <p className="pane-preview">{preview}</p> : null}
+            <div className="pane-sub">
+              {steps.length > 0 ? (
+                <>
+                  <span className="pane-steps-track" aria-hidden="true">
+                    <span style={{ width: `${Math.round((doneCount / steps.length) * 100)}%` }} />
+                  </span>
+                  <span className="pane-steps-count">
+                    {doneCount} из {steps.length}
+                  </span>
+                </>
+              ) : null}
+              <button
+                type="button"
+                className={steps.length > 0 ? 'pane-steps has-steps' : 'pane-steps'}
+                aria-expanded={open}
+                aria-label={steps.length > 0 ? `Шаги, ${doneCount} из ${steps.length}` : 'Шаги'}
+                onClick={onOpen}
+              >
+                шаги
+              </button>
+            </div>
+          </>
+        ) : null}
+      </div>
     </li>
   )
 }
