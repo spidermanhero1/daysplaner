@@ -156,7 +156,7 @@ export function DayPane({
           }}
         />
         <button type="submit" disabled={draft.trim() === ''}>
-          ок
+          Добавить
         </button>
       </form>
     </aside>
@@ -342,7 +342,7 @@ export function TaskPane({
           }}
         />
         <button type="submit" disabled={draft.trim() === ''}>
-          ок
+          Добавить
         </button>
       </form>
     </aside>

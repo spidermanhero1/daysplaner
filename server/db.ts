@@ -1,9 +1,11 @@
 import { randomBytes, randomUUID } from 'node:crypto'
+import { addDays, addMonths, monthStart, startOfWeek, todayKey } from '../shared/dates.ts'
 import { isThemeId, type ThemeId } from '../shared/themes.ts'
 import {
   DEFAULT_SHOP,
   PACK_SIZE,
   SMOKE_MAX,
+  WALLET_ACCOUNT_MAX,
   type ArchiveGroup,
   type Grocery,
   type MarketOrder,
@@ -14,6 +16,8 @@ import {
   type SmokeBreak,
   type SmokeKind,
   type Task,
+  type WalletKind,
+  type WalletPayload,
 } from '../shared/types.ts'
 import { InputError } from './errors.ts'
 import type { Sql } from './sql.ts'
@@ -102,6 +106,23 @@ const SCHEMA = `
     position INTEGER NOT NULL,
     created_at TEXT NOT NULL
   );
+  CREATE TABLE IF NOT EXISTS wallet_accounts (
+    id TEXT PRIMARY KEY,
+    profile_id TEXT,
+    name TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    position INTEGER NOT NULL,
+    created_at TEXT NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS wallet_entries (
+    id TEXT PRIMARY KEY,
+    profile_id TEXT,
+    account_id TEXT,
+    amount INTEGER NOT NULL,
+    note TEXT NOT NULL,
+    transfer_id TEXT,
+    created_at TEXT NOT NULL
+  );
 `
 
 const INDEXES = `
@@ -110,6 +131,8 @@ const INDEXES = `
   CREATE INDEX IF NOT EXISTS smoke_breaks_profile ON smoke_breaks(profile_id, day, created_at);
   CREATE INDEX IF NOT EXISTS groceries_profile ON groceries(profile_id, position);
   CREATE INDEX IF NOT EXISTS orders_profile ON market_orders(profile_id, position);
+  CREATE INDEX IF NOT EXISTS wallet_profile ON wallet_entries(profile_id, created_at);
+  CREATE INDEX IF NOT EXISTS wallet_accounts_profile ON wallet_accounts(profile_id, position);
 `
 
 export function parseProfileName(raw: unknown): string {
@@ -292,6 +315,225 @@ async function shopping(q: Sql, profileId: string): Promise<ShoppingPayload> {
   return { groceries: groceries.map(mapGrocery), orders: orders.map(mapOrder) }
 }
 
+const MONEY_MAX = 99_999_999_99
+
+function parseMoney(raw: unknown): number {
+  if (typeof raw !== 'string' && typeof raw !== 'number') throw new InputError('Напиши сумму.')
+  const text = String(raw).trim().replace(/\s/g, '').replace(',', '.')
+  if (!/^\d{1,9}(\.\d{1,2})?$/.test(text)) throw new InputError('Сумма не сходится.')
+  const [whole, frac = ''] = text.split('.')
+  const cents = Number(whole) * 100 + Number(frac.padEnd(2, '0'))
+  if (!Number.isSafeInteger(cents) || cents <= 0 || cents > MONEY_MAX) throw new InputError('Сумма не сходится.')
+  return cents
+}
+
+function parseWalletNote(raw: unknown): string {
+  if (raw === undefined || raw === null || raw === '') return ''
+  if (typeof raw !== 'string') throw new InputError('Напиши, на что.')
+  const note = raw.trim()
+  if (note.length > 80) throw new InputError('Слишком длинная заметка.')
+  return note
+}
+
+function parseWalletKind(raw: unknown): WalletKind {
+  if (raw !== 'cash' && raw !== 'card' && raw !== 'credit') throw new InputError('Выбери, какой это кошелёк.')
+  return raw
+}
+
+function parseAccountName(raw: unknown): string {
+  if (typeof raw !== 'string') throw new InputError('Напиши имя.')
+  const name = raw.trim()
+  if (!name) throw new InputError('Напиши имя.')
+  if (name.length > 40) throw new InputError('Слишком длинное имя.')
+  return name
+}
+
+function parseAccountId(raw: unknown): string {
+  if (typeof raw !== 'string') throw new InputError('Выбери кошелёк.')
+  const id = raw.trim()
+  if (!id || id.length > 80) throw new InputError('Выбери кошелёк.')
+  return id
+}
+
+const WALLET_ENTRY_LIMIT = 300
+
+const DEFAULT_WALLETS: { name: string; kind: WalletKind }[] = [
+  { name: 'Наличка', kind: 'cash' },
+  { name: 'Карта', kind: 'card' },
+  { name: 'Кредит', kind: 'credit' },
+]
+
+type WalletAccountRow = { id: string; name: string; kind: string; position: number }
+type WalletAmountRow = {
+  account_id: string | null
+  amount: number
+  created_at: string
+  transfer_id: string | null
+}
+type WalletEntryRow = {
+  id: string
+  account_id: string | null
+  amount: number
+  note: string
+  transfer_id: string | null
+  created_at: string
+}
+
+function asKind(raw: string): WalletKind {
+  return raw === 'card' || raw === 'credit' ? raw : 'cash'
+}
+
+function entryDay(iso: string): string | null {
+  const date = new Date(iso)
+  if (Number.isNaN(date.getTime())) return null
+  return todayKey(date)
+}
+
+async function ensureWallets(q: Sql, profileId: string): Promise<void> {
+  const count = await q.get<{ n: number }>('SELECT COUNT(*) AS n FROM wallet_accounts WHERE profile_id = ?', [profileId])
+  if (Number(count?.n ?? 0) === 0) {
+    const now = new Date().toISOString()
+    for (let index = 0; index < DEFAULT_WALLETS.length; index += 1) {
+      const item = DEFAULT_WALLETS[index]
+      await q.run(
+        'INSERT INTO wallet_accounts (id, profile_id, name, kind, position, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+        [randomUUID(), profileId, item.name, item.kind, index, now],
+      )
+    }
+  }
+  const loose = await q.get<{ n: number }>(
+    `SELECT COUNT(*) AS n FROM wallet_entries WHERE profile_id = ? AND (account_id IS NULL OR account_id = '')`,
+    [profileId],
+  )
+  if (Number(loose?.n ?? 0) === 0) return
+  const cash = await q.get<{ id: string }>(
+    `SELECT id FROM wallet_accounts WHERE profile_id = ? AND kind = 'cash' ORDER BY position ASC, created_at ASC LIMIT 1`,
+    [profileId],
+  )
+  const home =
+    cash ??
+    (await q.get<{ id: string }>(
+      'SELECT id FROM wallet_accounts WHERE profile_id = ? ORDER BY position ASC, created_at ASC LIMIT 1',
+      [profileId],
+    ))
+  if (!home) return
+  await q.run(
+    `UPDATE wallet_entries SET account_id = ? WHERE profile_id = ? AND (account_id IS NULL OR account_id = '')`,
+    [home.id, profileId],
+  )
+}
+
+async function ownedAccount(q: Sql, profileId: string, id: string) {
+  return q.get<{ id: string }>('SELECT id FROM wallet_accounts WHERE id = ? AND profile_id = ?', [id, profileId])
+}
+
+async function wallet(q: Sql, profileId: string): Promise<WalletPayload> {
+  await ensureWallets(q, profileId)
+  const accounts = await q.all<WalletAccountRow>(
+    'SELECT id, name, kind, position FROM wallet_accounts WHERE profile_id = ? ORDER BY position ASC, created_at ASC',
+    [profileId],
+  )
+  const amounts = await q.all<WalletAmountRow>(
+    'SELECT account_id, amount, created_at, transfer_id FROM wallet_entries WHERE profile_id = ?',
+    [profileId],
+  )
+  const today = todayKey()
+  const weekFrom = startOfWeek(today)
+  const weekTo = addDays(weekFrom, 6)
+  const monthFrom = monthStart(today)
+  const monthTo = addDays(addMonths(monthFrom, 1), -1)
+  const stats = new Map<string, { balance: number; weekIn: number; weekOut: number; monthIn: number; monthOut: number }>()
+  for (const account of accounts) {
+    stats.set(account.id, { balance: 0, weekIn: 0, weekOut: 0, monthIn: 0, monthOut: 0 })
+  }
+  let weekIn = 0
+  let weekOut = 0
+  let monthIn = 0
+  let monthOut = 0
+  for (const row of amounts) {
+    if (!row.account_id) continue
+    const stat = stats.get(row.account_id)
+    if (!stat) continue
+    const amount = Number(row.amount)
+    stat.balance += amount
+    if (row.transfer_id) continue
+    const day = entryDay(row.created_at)
+    if (!day) continue
+    if (day >= weekFrom && day <= weekTo) {
+      if (amount > 0) {
+        stat.weekIn += amount
+        weekIn += amount
+      } else if (amount < 0) {
+        stat.weekOut += -amount
+        weekOut += -amount
+      }
+    }
+    if (day >= monthFrom && day <= monthTo) {
+      if (amount > 0) {
+        stat.monthIn += amount
+        monthIn += amount
+      } else if (amount < 0) {
+        stat.monthOut += -amount
+        monthOut += -amount
+      }
+    }
+  }
+
+  let held = 0
+  let debt = 0
+  let overpay = 0
+  const mapped = accounts.map((account) => {
+    const stat = stats.get(account.id) ?? { balance: 0, weekIn: 0, weekOut: 0, monthIn: 0, monthOut: 0 }
+    const kind = asKind(account.kind)
+    if (kind === 'credit') {
+      if (stat.balance < 0) debt += -stat.balance
+      else overpay += stat.balance
+    } else held += stat.balance
+    return {
+      id: account.id,
+      name: account.name,
+      kind,
+      balance: stat.balance,
+      weekIn: stat.weekIn,
+      weekOut: stat.weekOut,
+      monthIn: stat.monthIn,
+      monthOut: stat.monthOut,
+    }
+  })
+
+  const rows = await q.all<WalletEntryRow>(
+    `SELECT id, account_id, amount, note, transfer_id, created_at FROM wallet_entries
+     WHERE profile_id = ? ORDER BY created_at DESC, rowid DESC LIMIT ?`,
+    [profileId, WALLET_ENTRY_LIMIT],
+  )
+  const total = await q.get<{ n: number }>('SELECT COUNT(*) AS n FROM wallet_entries WHERE profile_id = ?', [profileId])
+  return {
+    held,
+    debt,
+    overpay,
+    weekIn,
+    weekOut,
+    monthIn,
+    monthOut,
+    entryCount: Number(total?.n ?? 0),
+    accounts: mapped,
+    entries: rows.flatMap((row) =>
+      row.account_id
+        ? [
+            {
+              id: row.id,
+              accountId: row.account_id,
+              amount: Number(row.amount),
+              note: row.note,
+              transferId: row.transfer_id,
+              createdAt: row.created_at,
+            },
+          ]
+        : [],
+    ),
+  }
+}
+
 async function nameTaken(q: Sql, name: string, exceptId?: string): Promise<boolean> {
   const key = name.toLocaleLowerCase('ru-RU')
   const rows = await q.all<ProfileRow>('SELECT id, name, theme FROM profiles ORDER BY position ASC, created_at ASC')
@@ -326,7 +568,7 @@ export async function openDatabase(sql: Sql) {
     defaultProfileId = first.id
   }
 
-  for (const table of ['tasks', 'smoke_breaks', 'groceries', 'market_orders']) {
+  for (const table of ['tasks', 'smoke_breaks', 'groceries', 'market_orders', 'wallet_entries']) {
     if (!(await tableColumns(sql, table)).includes('profile_id')) {
       await sql.exec(`ALTER TABLE ${table} ADD COLUMN profile_id TEXT`)
     }
@@ -359,6 +601,10 @@ export async function openDatabase(sql: Sql) {
       await tx.exec('ALTER TABLE smoke_stock_v2 RENAME TO smoke_stock')
     })
   }
+
+  const walletColumns = await tableColumns(sql, 'wallet_entries')
+  if (!walletColumns.includes('account_id')) await sql.exec('ALTER TABLE wallet_entries ADD COLUMN account_id TEXT')
+  if (!walletColumns.includes('transfer_id')) await sql.exec('ALTER TABLE wallet_entries ADD COLUMN transfer_id TEXT')
 
   await sql.exec(INDEXES)
 
@@ -679,6 +925,105 @@ export async function openDatabase(sql: Sql) {
         if (info.changes === 0) return null
         return shopping(tx, profileId)
       }),
+    wallet: (profileId: string) => wallet(sql, profileId),
+    addWalletEntry: (
+      profileId: string,
+      amount: unknown,
+      direction: unknown,
+      note: unknown,
+      accountId: unknown,
+      toId: unknown,
+    ) =>
+      sql.transaction(async (tx) => {
+        if (direction !== 'in' && direction !== 'out' && direction !== 'move') throw new InputError('Нечего менять.')
+        await ensureWallets(tx, profileId)
+        const cents = parseMoney(amount)
+        const text = parseWalletNote(note)
+        const from = await ownedAccount(tx, profileId, parseAccountId(accountId))
+        if (!from) throw new InputError('Кошелька уже нет.')
+        const now = new Date().toISOString()
+        if (direction === 'move') {
+          const target = await ownedAccount(tx, profileId, parseAccountId(toId))
+          if (!target) throw new InputError('Кошелька уже нет.')
+          if (target.id === from.id) throw new InputError('Это тот же кошелёк.')
+          const transferId = randomUUID()
+          await tx.run(
+            'INSERT INTO wallet_entries (id, profile_id, account_id, amount, note, transfer_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+            [randomUUID(), profileId, from.id, -cents, text, transferId, now],
+          )
+          await tx.run(
+            'INSERT INTO wallet_entries (id, profile_id, account_id, amount, note, transfer_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+            [randomUUID(), profileId, target.id, cents, text, transferId, now],
+          )
+        } else {
+          const signed = direction === 'out' ? -cents : cents
+          await tx.run(
+            'INSERT INTO wallet_entries (id, profile_id, account_id, amount, note, transfer_id, created_at) VALUES (?, ?, ?, ?, ?, NULL, ?)',
+            [randomUUID(), profileId, from.id, signed, text, now],
+          )
+        }
+        return wallet(tx, profileId)
+      }),
+    deleteWalletEntry: (profileId: string, id: string) =>
+      sql.transaction(async (tx) => {
+        const current = await tx.get<{ id: string; transfer_id: string | null }>(
+          'SELECT id, transfer_id FROM wallet_entries WHERE id = ? AND profile_id = ?',
+          [id, profileId],
+        )
+        if (!current) return null
+        const info = current.transfer_id
+          ? await tx.run('DELETE FROM wallet_entries WHERE profile_id = ? AND transfer_id = ?', [
+              profileId,
+              current.transfer_id,
+            ])
+          : await tx.run('DELETE FROM wallet_entries WHERE id = ? AND profile_id = ?', [id, profileId])
+        if (info.changes === 0) return null
+        return wallet(tx, profileId)
+      }),
+    addWalletAccount: (profileId: string, name: unknown, kind: unknown) =>
+      sql.transaction(async (tx) => {
+        await ensureWallets(tx, profileId)
+        const count = await tx.get<{ n: number }>('SELECT COUNT(*) AS n FROM wallet_accounts WHERE profile_id = ?', [
+          profileId,
+        ])
+        if (Number(count?.n ?? 0) >= WALLET_ACCOUNT_MAX) throw new InputError('Хватит кошельков.')
+        const max = await tx.get<{ m: number }>(
+          'SELECT COALESCE(MAX(position), -1) AS m FROM wallet_accounts WHERE profile_id = ?',
+          [profileId],
+        )
+        await tx.run(
+          'INSERT INTO wallet_accounts (id, profile_id, name, kind, position, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+          [randomUUID(), profileId, parseAccountName(name), parseWalletKind(kind), Number(max?.m ?? -1) + 1, new Date().toISOString()],
+        )
+        return wallet(tx, profileId)
+      }),
+    renameWalletAccount: (profileId: string, id: string, name: unknown) =>
+      sql.transaction(async (tx) => {
+        const current = await ownedAccount(tx, profileId, id)
+        if (!current) return null
+        await tx.run('UPDATE wallet_accounts SET name = ? WHERE id = ? AND profile_id = ?', [
+          parseAccountName(name),
+          id,
+          profileId,
+        ])
+        return wallet(tx, profileId)
+      }),
+    deleteWalletAccount: (profileId: string, id: string) =>
+      sql.transaction(async (tx) => {
+        const current = await ownedAccount(tx, profileId, id)
+        if (!current) return null
+        const accounts = await tx.get<{ n: number }>('SELECT COUNT(*) AS n FROM wallet_accounts WHERE profile_id = ?', [
+          profileId,
+        ])
+        if (Number(accounts?.n ?? 0) <= 1) throw new InputError('Это последний кошелёк.')
+        const entries = await tx.get<{ n: number }>(
+          'SELECT COUNT(*) AS n FROM wallet_entries WHERE profile_id = ? AND account_id = ?',
+          [profileId, id],
+        )
+        if (Number(entries?.n ?? 0) > 0) throw new InputError('Сначала убери записи.')
+        await tx.run('DELETE FROM wallet_accounts WHERE id = ? AND profile_id = ?', [id, profileId])
+        return wallet(tx, profileId)
+      }),
     listProfiles: () => listProfiles(sql),
     resolveProfile: async (id: string | undefined) => {
       if (id) {
@@ -733,6 +1078,8 @@ export async function openDatabase(sql: Sql) {
         await tx.run('DELETE FROM smoke_stock WHERE profile_id = ?', [id])
         await tx.run('DELETE FROM groceries WHERE profile_id = ?', [id])
         await tx.run('DELETE FROM market_orders WHERE profile_id = ?', [id])
+        await tx.run('DELETE FROM wallet_entries WHERE profile_id = ?', [id])
+        await tx.run('DELETE FROM wallet_accounts WHERE profile_id = ?', [id])
         await tx.run('DELETE FROM profiles WHERE id = ?', [id])
         return true
       }),

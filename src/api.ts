@@ -11,6 +11,9 @@ import type {
   SmokeKind,
   SmokePayload,
   SpanPayload,
+  WalletKind,
+  WalletPayload,
+  WalletWrite,
 } from '../shared/types.ts'
 
 export class AuthError extends Error {
@@ -98,4 +101,16 @@ export const api = {
   updateOrder: (id: string, patch: { title?: string; shop?: string; status?: OrderStatus }) =>
     request<ShoppingPayload>(`/api/shopping/orders/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
   deleteOrder: (id: string) => request<ShoppingPayload>(`/api/shopping/orders/${id}`, { method: 'DELETE' }),
+  wallet: () => request<WalletPayload>('/api/wallet'),
+  addWallet: (entry: WalletWrite) =>
+    request<WalletPayload>('/api/wallet', {
+      method: 'POST',
+      body: JSON.stringify(entry),
+    }),
+  deleteWallet: (id: string) => request<WalletPayload>(`/api/wallet/${id}`, { method: 'DELETE' }),
+  addWalletAccount: (name: string, kind: WalletKind) =>
+    request<WalletPayload>('/api/wallet/accounts', { method: 'POST', body: JSON.stringify({ name, kind }) }),
+  renameWalletAccount: (id: string, name: string) =>
+    request<WalletPayload>(`/api/wallet/accounts/${id}`, { method: 'PATCH', body: JSON.stringify({ name }) }),
+  deleteWalletAccount: (id: string) => request<WalletPayload>(`/api/wallet/accounts/${id}`, { method: 'DELETE' }),
 }

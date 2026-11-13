@@ -163,6 +163,9 @@ export function CalendarScreen({
   const subRef = useRef<HTMLInputElement>(null)
   const focusSub = useRef(false)
   const skipDock = useRef(false)
+  const boardRef = useRef<HTMLDivElement>(null)
+  const ignoreClick = useRef(false)
+  const dropSwipe = useRef<(() => void) | null>(null)
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
     useSensor(TouchSensor, { activationConstraint: { delay: 180, tolerance: 8 } }),
@@ -204,6 +207,15 @@ export function CalendarScreen({
   const showTask = Boolean(openedTask) && (roomy || split || sheet === 'task')
   const dragOnCalendar = !showDay
   const place = relativeLabel(selected, today) ?? shortDateOf(selected)
+  const tone = themeTone(theme)
+  if (theme === 'paper') {
+    delete document.documentElement.dataset.theme
+    delete document.documentElement.dataset.tone
+  } else {
+    document.documentElement.dataset.theme = theme
+    if (tone) document.documentElement.dataset.tone = tone
+    else delete document.documentElement.dataset.tone
+  }
 
   useEffect(() => {
     document.title = `${title} · ${profileName}`
@@ -213,11 +225,15 @@ export function CalendarScreen({
     const root = document.documentElement
     const meta = document.querySelector('meta[name="theme-color"]')
     const current = THEMES.find((item) => item.id === theme) ?? THEMES[0]
+    const tone = themeTone(theme)
     if (theme === 'paper') delete root.dataset.theme
     else root.dataset.theme = theme
+    if (tone) root.dataset.tone = tone
+    else delete root.dataset.tone
     meta?.setAttribute('content', current.color)
     return () => {
       delete root.dataset.theme
+      delete root.dataset.tone
       meta?.setAttribute('content', '#f3eadc')
     }
   }, [theme])
@@ -287,6 +303,23 @@ export function CalendarScreen({
     wantFocus.current = false
     addRef.current?.focus()
   }, [selected, zoom, docked])
+
+  useEffect(() => {
+    return () => dropSwipe.current?.()
+  }, [])
+
+  useEffect(() => {
+    const node = boardRef.current
+    if (!node) return
+    function eat(event: MouseEvent) {
+      if (!ignoreClick.current) return
+      event.preventDefault()
+      event.stopPropagation()
+      ignoreClick.current = false
+    }
+    node.addEventListener('click', eat, true)
+    return () => node.removeEventListener('click', eat, true)
+  }, [])
 
   useEffect(() => {
     if (didAuto.current || tasks === null) return
@@ -550,9 +583,41 @@ export function CalendarScreen({
     onTheme(id)
   }
 
+  function onBoardPointerDown(event: ReactPointerEvent<HTMLDivElement>) {
+    if (split || event.pointerType === 'mouse') return
+    const target = event.target
+    if (target instanceof Element && target.closest('input, textarea, select')) return
+    dropSwipe.current?.()
+    const startX = event.clientX
+    const startY = event.clientY
+    const pointer = event.pointerId
+    function end(ev: PointerEvent) {
+      if (ev.pointerId !== pointer) return
+      clear()
+      const dx = ev.clientX - startX
+      const dy = ev.clientY - startY
+      if (Math.abs(dx) < 64 || Math.abs(dx) < Math.abs(dy) * 1.25) return
+      ignoreClick.current = true
+      window.setTimeout(() => {
+        ignoreClick.current = false
+      }, 400)
+      onPage(dx < 0 ? 1 : -1)
+    }
+    function clear() {
+      window.removeEventListener('pointerup', end)
+      window.removeEventListener('pointercancel', end)
+      if (dropSwipe.current === clear) dropSwipe.current = null
+    }
+    dropSwipe.current = clear
+    window.addEventListener('pointerup', end)
+    window.addEventListener('pointercancel', end)
+  }
+
+  const touch = !split
+
   return (
     <main
-      className={zoom === 'month' ? 'cal is-month' : 'cal is-week'}
+      className={zoom === 'month' ? (touch ? 'cal is-month is-touch' : 'cal is-month') : touch ? 'cal is-week is-touch' : 'cal is-week'}
       data-theme={theme === 'paper' ? undefined : theme}
       data-tone={themeTone(theme)}
     >
@@ -669,11 +734,13 @@ export function CalendarScreen({
       <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
         <div className={showTask ? 'cal-split has-task' : 'cal-split'}>
         <div
+          ref={boardRef}
           className="cal-board"
           role="grid"
           aria-labelledby="cal-title"
           aria-busy={tasks === null}
           style={{ '--weeks': weeks.length } as CSSProperties}
+          onPointerDown={onBoardPointerDown}
         >
           <div className="cal-dows" role="row">
             {WEEKDAYS.map((name, index) => (
@@ -710,7 +777,11 @@ export function CalendarScreen({
                         <button
                           type="button"
                           className="cal-num"
-                          onClick={() => (split ? openAdd(day) : openDay(day))}
+                          onClick={(event) => {
+                            event.stopPropagation()
+                            if (split) openAdd(day)
+                            else blank(day)
+                          }}
                           aria-label={`${Number(day.slice(8, 10))}, ${weekdayOf(day)}`}
                         >
                           {Number(day.slice(8, 10))}
@@ -721,6 +792,11 @@ export function CalendarScreen({
                             {day === today ? <span className="cal-rel">сегодня</span> : null}
                           </span>
                         ) : null}
+                        {touch && !docked && sheet === null && day === selected ? (
+                          <button type="button" className="cal-open" onClick={() => openDay(day)}>
+                            Открыть
+                          </button>
+                        ) : null}
                       </div>
                       <div className="cal-scroll">
                         {open.length > 0 ? (
@@ -728,14 +804,20 @@ export function CalendarScreen({
                             <SortableContext items={open.map((task) => task.id)} strategy={verticalListSortingStrategy}>
                               <ul className="cal-tasks">
                                 {open.map((task) => (
-                                  <OpenChip key={task.id} {...chipProps(day, task)} />
+                                  <OpenChip key={task.id} {...chipProps(day, task)} titleOpens={split} showSteps={touch && !docked} />
                                 ))}
                               </ul>
                             </SortableContext>
                           ) : (
                             <ul className="cal-tasks">
                               {open.map((task) => (
-                                <TaskLine key={task.id} {...chipProps(day, task)} leading={<span className="chip-handle" />} />
+                                <TaskLine
+                                  key={task.id}
+                                  {...chipProps(day, task)}
+                                  titleOpens={split}
+                                  showSteps={touch && !docked}
+                                  leading={<span className="chip-handle" />}
+                                />
                               ))}
                             </ul>
                           )
@@ -823,7 +905,10 @@ export function CalendarScreen({
         </div>
       </DndContext>
       {docked ? (
-        <form className="cal-dock" onSubmit={(event) => void submit(selected, event)}>
+        <form className={pickedTask ? 'cal-dock has-task' : 'cal-dock'} onSubmit={(event) => void submit(selected, event)}>
+          <button type="button" className="cal-open" onClick={() => openDay(selected)}>
+            Открыть {place}
+          </button>
           {pickedTask ? (
             <div className="cal-dock-task">
               {dockEdit !== null ? (
@@ -908,17 +993,19 @@ export function CalendarScreen({
   )
 
   function onCellPointerDown(event: ReactPointerEvent<HTMLDivElement>, day: string) {
+    if (event.pointerType !== 'mouse') return
     const target = event.target
     if (target instanceof Element && target.closest('[data-task]')) return
     blank(day)
   }
 
   function onCellClick(event: ReactMouseEvent<HTMLDivElement>, day: string) {
+    if (ignoreClick.current) return
     const target = event.target
     if (!(target instanceof Element)) return
-    if (target.closest('button, input, label, a, textarea')) return
+    if (target.closest('button, input, label, a, textarea, [data-task]')) return
     if (split) openAdd(day)
-    else openDay(day)
+    else blank(day)
   }
 
   function chipProps(day: string, task: Task) {
@@ -1010,6 +1097,8 @@ type LineProps = {
   opened?: boolean
   hint?: string
   canEdit: boolean
+  titleOpens?: boolean
+  showSteps?: boolean
   onPick: () => void
   onOpen?: () => void
   onToggle: (done: boolean) => void
@@ -1024,6 +1113,8 @@ function TaskLine({
   opened,
   hint,
   canEdit,
+  titleOpens = true,
+  showSteps = false,
   onPick,
   onOpen,
   onToggle,
@@ -1087,6 +1178,12 @@ function TaskLine({
       data-id={task.id}
       style={style}
       onPointerDown={(event) => {
+        if (event.pointerType !== 'mouse') return
+        const target = event.target
+        if (target instanceof Element && target.closest('input, button, a, label, textarea')) return
+        onPick()
+      }}
+      onClick={(event) => {
         const target = event.target
         if (target instanceof Element && target.closest('input, button, a, label, textarea')) return
         onPick()
@@ -1122,7 +1219,7 @@ function TaskLine({
           className="chip-title"
           title={hint ? `${task.title}, ${hint}` : task.title}
           onClick={() => {
-            if (onOpen) {
+            if (titleOpens && onOpen) {
               onOpen()
               return
             }
@@ -1134,6 +1231,11 @@ function TaskLine({
         </button>
       )}
       {hint ? <span className="chip-subs">{hint}</span> : null}
+      {showSteps && picked && onOpen ? (
+        <button type="button" className="chip-open" onClick={onOpen}>
+          шаги
+        </button>
+      ) : null}
       <button
         type="button"
         className={task.priority === 'important' ? 'chip-pri is-on' : 'chip-pri'}

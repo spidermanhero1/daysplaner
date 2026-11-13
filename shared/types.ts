@@ -99,6 +99,56 @@ export type ShoppingPayload = {
   orders: MarketOrder[]
 }
 
+/** Наличка и карта — свои деньги. Кредит — долг, пока остаток меньше нуля. */
+export type WalletKind = 'cash' | 'card' | 'credit'
+
+export type WalletDirection = 'in' | 'out' | 'move'
+
+/** Сколько отдельных кошельков можно завести на профиль. */
+export const WALLET_ACCOUNT_MAX = 12
+
+export type WalletAccount = {
+  id: string
+  name: string
+  kind: WalletKind
+  balance: number
+  weekIn: number
+  weekOut: number
+  monthIn: number
+  monthOut: number
+}
+
+/** Сумма в копейках: плюс пришло, минус ушло. transferId связывает две стороны перевода. */
+export type WalletEntry = {
+  id: string
+  accountId: string
+  amount: number
+  note: string
+  transferId: string | null
+  createdAt: string
+}
+
+export type WalletWrite = {
+  accountId: string
+  toId?: string
+  amount: string
+  direction: WalletDirection
+  note: string
+}
+
+export type WalletPayload = {
+  held: number
+  debt: number
+  overpay: number
+  weekIn: number
+  weekOut: number
+  monthIn: number
+  monthOut: number
+  entryCount: number
+  accounts: WalletAccount[]
+  entries: WalletEntry[]
+}
+
 export type Profile = {
   id: string
   name: string

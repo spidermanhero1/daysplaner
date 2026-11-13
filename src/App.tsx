@@ -23,6 +23,7 @@ import type {
   SmokeKind,
   SmokePayload,
   Task,
+  WalletPayload,
 } from '../shared/types.ts'
 import { api, AuthError } from './api.ts'
 import { forgetTheme, peekTheme, type ThemeId } from './themes.ts'
@@ -32,6 +33,7 @@ import { LoginScreen } from './LoginScreen.tsx'
 import { Float } from './float.tsx'
 import { ShopWindow } from './ShopWindow.tsx'
 import { SmokeWindow } from './SmokeWindow.tsx'
+import { WalletWindow } from './WalletWindow.tsx'
 
 function where(target: string, today: string): string {
   return relativeLabel(target, today) ?? shortDateOf(target)
@@ -96,6 +98,9 @@ function Planner({
   const [shopping, setShopping] = useState<ShoppingPayload | null>(null)
   const [shoppingError, setShoppingError] = useState<string | null>(null)
   const [shoppingPending, setShoppingPending] = useState(false)
+  const [wallet, setWallet] = useState<WalletPayload | null>(null)
+  const [walletError, setWalletError] = useState<string | null>(null)
+  const [walletPending, setWalletPending] = useState(false)
   const [profiles, setProfiles] = useState<Profile[] | null>(null)
   const [profileId, setProfileId] = useState<string | null>(null)
   const [profileError, setProfileError] = useState<string | null>(null)
@@ -109,6 +114,7 @@ function Planner({
   const loadedRef = useRef<{ from: string; to: string; profile: string } | null>(null)
   const smokeSeq = useRef(0)
   const shoppingSeq = useRef(0)
+  const walletSeq = useRef(0)
   const selectedRef = useRef(selected)
   selectedRef.current = selected
   const days = useMemo(
@@ -139,6 +145,7 @@ function Planner({
       writeEpoch.current += 1
       smokeSeq.current += 1
       shoppingSeq.current += 1
+      walletSeq.current += 1
       loadSeq.current += 1
       loadedRef.current = null
       writesInFlight.current = 0
@@ -146,11 +153,13 @@ function Planner({
       setTasks(null)
       setSmoke(null)
       setShopping(null)
+      setWallet(null)
       setGroups(null)
       setNote(null)
       setError(null)
       setSmokeError(null)
       setShoppingError(null)
+      setWalletError(null)
     }
     profileRef.current = data.currentId
     setProfiles(data.profiles)
@@ -235,6 +244,28 @@ function Planner({
   useEffect(() => {
     pullShopping()
   }, [pullShopping])
+
+  const pullWallet = useCallback(() => {
+    if (!profileId) return
+    const seq = ++walletSeq.current
+    setWalletError(null)
+    api.wallet().then(
+      (data) => {
+        if (!alive.current || walletSeq.current !== seq) return
+        setWallet(data)
+        setWalletError(null)
+      },
+      (caught: unknown) => {
+        if (!alive.current || walletSeq.current !== seq) return
+        if (caught instanceof AuthError) onUnauthorized()
+        else setWalletError(caught instanceof Error ? caught.message : 'Не сохранилось.')
+      },
+    )
+  }, [onUnauthorized, profileId])
+
+  useEffect(() => {
+    pullWallet()
+  }, [pullWallet])
 
   useEffect(() => {
     if (view !== 'archive' || !profileId) return
@@ -334,6 +365,27 @@ function Planner({
       return false
     } finally {
       if (alive.current && shoppingSeq.current === seq && profileEpoch.current === stamp) setShoppingPending(false)
+    }
+  }
+
+  async function runWallet(run: () => Promise<WalletPayload>): Promise<boolean> {
+    const seq = ++walletSeq.current
+    const stamp = profileEpoch.current
+    setWalletPending(true)
+    setWalletError(null)
+    try {
+      const data = await run()
+      if (!alive.current || walletSeq.current !== seq || profileEpoch.current !== stamp) return true
+      setWallet(data)
+      setWalletError(null)
+      return true
+    } catch (caught) {
+      if (!alive.current || walletSeq.current !== seq || profileEpoch.current !== stamp) return false
+      if (caught instanceof AuthError) onUnauthorized()
+      else setWalletError(caught instanceof Error ? caught.message : 'Не сохранилось.')
+      return false
+    } finally {
+      if (alive.current && walletSeq.current === seq && profileEpoch.current === stamp) setWalletPending(false)
     }
   }
 
@@ -653,6 +705,20 @@ function Planner({
             void runShopping(() => api.updateOrder(id, patch))
           }
           onDeleteOrder={(id) => void runShopping(() => api.deleteOrder(id))}
+        />
+        </Float>
+        <Float id="wallet" profileId={profileId}>
+        <WalletWindow
+          profileId={profileId}
+          wallet={wallet}
+          error={walletError}
+          pending={walletPending}
+          onRetry={pullWallet}
+          onAdd={(entry) => runWallet(() => api.addWallet(entry))}
+          onDelete={(id) => void runWallet(() => api.deleteWallet(id))}
+          onAddAccount={(name, kind) => runWallet(() => api.addWalletAccount(name, kind))}
+          onRenameAccount={(id, name) => runWallet(() => api.renameWalletAccount(id, name))}
+          onDeleteAccount={(id) => void runWallet(() => api.deleteWalletAccount(id))}
         />
         </Float>
       </div>,

@@ -354,6 +354,46 @@ export function createApp(db: AppDatabase, runtime: Runtime) {
     return c.json(updated)
   })
 
+  app.get('/api/wallet', async (c) => c.json(await db.wallet(await who(c))))
+
+  app.post('/api/wallet/accounts', async (c) => {
+    const body = await c.req.json().catch(() => null)
+    const record = body && typeof body === 'object' ? (body as { name?: unknown; kind?: unknown }) : {}
+    return c.json(await db.addWalletAccount(await who(c), record.name, record.kind), 201)
+  })
+
+  app.patch('/api/wallet/accounts/:id', async (c) => {
+    const body = await c.req.json().catch(() => null)
+    const record = body && typeof body === 'object' ? (body as { name?: unknown }) : {}
+    const updated = await db.renameWalletAccount(await who(c), c.req.param('id'), record.name)
+    if (!updated) return c.json({ error: 'Кошелька уже нет.' }, 404)
+    return c.json(updated)
+  })
+
+  app.delete('/api/wallet/accounts/:id', async (c) => {
+    const updated = await db.deleteWalletAccount(await who(c), c.req.param('id'))
+    if (!updated) return c.json({ error: 'Кошелька уже нет.' }, 404)
+    return c.json(updated)
+  })
+
+  app.post('/api/wallet', async (c) => {
+    const body = await c.req.json().catch(() => null)
+    const record =
+      body && typeof body === 'object'
+        ? (body as { amount?: unknown; direction?: unknown; note?: unknown; accountId?: unknown; toId?: unknown })
+        : {}
+    return c.json(
+      await db.addWalletEntry(await who(c), record.amount, record.direction, record.note, record.accountId, record.toId),
+      201,
+    )
+  })
+
+  app.delete('/api/wallet/:id', async (c) => {
+    const updated = await db.deleteWalletEntry(await who(c), c.req.param('id'))
+    if (!updated) return c.json({ error: 'Записи уже нет.' }, 404)
+    return c.json(updated)
+  })
+
   app.all('/api/*', (c) => c.json({ error: 'Нет такого запроса.' }, 404))
 
   app.onError((error, c) => {

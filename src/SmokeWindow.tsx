@@ -118,12 +118,7 @@ export function SmokeWindow({
   onBreak: (kind: SmokeKind) => void
   onUndo: (id: string) => void
 }) {
-  const [open, setOpen] = useState(() => {
-    const saved = localStorage.getItem(OPEN_KEY)
-    if (saved === '0') return false
-    if (saved === '1') return true
-    return window.matchMedia('(min-width: 721px)').matches
-  })
+  const [open, setOpen] = useState(() => localStorage.getItem(OPEN_KEY) === '1')
   const place = relativeLabel(day, today) ?? shortDateOf(day)
   const ready = Boolean(smoke && smoke.day === day)
   const locked = pending || !ready
