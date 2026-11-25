@@ -501,6 +501,64 @@ body:has(.archive) {
   font-size: 0.92rem;
 }
 
+.carry[aria-expanded='true'] { border-color: var(--ink); }
+
+.carry-slot { position: relative; }
+
+.carry-pop {
+  position: absolute;
+  z-index: 6;
+  top: calc(100% + 0.4rem);
+  right: 0;
+  width: 16rem;
+  max-width: calc(100vw - 1.7rem);
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  padding: 0.7rem;
+  border: 1px solid var(--line);
+  border-radius: 0.95rem;
+  background: var(--bg);
+  box-shadow: 0 16px 40px rgba(20, 12, 6, 0.2);
+}
+
+.carry-pop p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.carry-pop input {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: transparent;
+  padding: 0.45rem 0.8rem;
+  font-size: 16px;
+}
+
+.carry-pop input:focus {
+  outline: none;
+  border-color: var(--ink);
+}
+
+.carry-go {
+  border-radius: 999px;
+  background: var(--ink);
+  color: var(--bg);
+  padding: 0.5rem 0.85rem;
+  font-size: 0.95rem;
+}
+
+.carry-go:disabled { opacity: 0.35; cursor: default; }
+
+@media (max-width: 859px) {
+  .carry-pop { left: 0; right: auto; }
+}
+
 .cal .note { margin: 0 0 0.35rem; }
 
 .cal-split {
@@ -2302,6 +2360,9 @@ html.is-dragging-desk { user-select: none; }
 }
 
 .cal.is-touch .cal-tools .carry { margin-top: 0; }
+
+.cal.is-touch .carry-pop input,
+.cal.is-touch .carry-go { min-height: 2.5rem; }
 
 .cal.is-touch .cal-dock-actions {
   flex-wrap: nowrap;

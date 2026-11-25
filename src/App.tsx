@@ -656,9 +656,9 @@ function Planner({
         setTasks((current) => reorderSubtasks(current, parentId, ids))
         return void commit(() => api.reorderSubtasks(parentId, ids), mergeDay)
       }}
-      onCarry={() => {
+      onCarry={(to) => {
         const day = selected
-        void commit(() => api.carry(day), absorbCarry, true)
+        void commit(() => api.carry(day, to), absorbCarry, true)
       }}
       profiles={profiles}
       profileId={profileId}

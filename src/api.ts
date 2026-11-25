@@ -69,7 +69,11 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ ids }),
     }),
-  carry: (day: string) => request<CarryPayload>(`/api/days/${day}/carry`, { method: 'POST' }),
+  carry: (day: string, to: string) =>
+    request<CarryPayload>(`/api/days/${day}/carry`, {
+      method: 'POST',
+      body: JSON.stringify({ to }),
+    }),
   addSubtask: (id: string, title: string) =>
     request<DayPayload>(`/api/tasks/${id}/subtasks`, {
       method: 'POST',

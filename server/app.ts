@@ -2,7 +2,7 @@ import { createHash, timingSafeEqual } from 'node:crypto'
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie'
 import { Hono } from 'hono'
 import type { Context } from 'hono'
-import { addDays, resolveDay, spanDays, todayKey } from '../shared/dates.ts'
+import { resolveDay, spanDays, todayKey } from '../shared/dates.ts'
 import { isThemeId, type ThemeId } from '../shared/themes.ts'
 import type { OrderStatus, Priority } from '../shared/types.ts'
 import type { Runtime } from './boot.ts'
@@ -211,7 +211,11 @@ export function createApp(db: AppDatabase, runtime: Runtime) {
   app.post('/api/days/:day/carry', async (c) => {
     const day = resolveDay(c.req.param('day'))
     if (!day) return c.json({ error: 'Нет такой даты.' }, 400)
-    const to = addDays(day, 1)
+    const body = await c.req.json().catch(() => null)
+    const raw = body && typeof body === 'object' ? (body as { to?: unknown }).to : undefined
+    const to = typeof raw === 'string' ? resolveDay(raw) : null
+    if (!to) return c.json({ error: 'Нет такой даты.' }, 400)
+    if (to === day) return c.json({ error: 'Это тот же день.' }, 400)
     const profileId = await who(c)
     const moved = await db.carry(profileId, day, to)
     return c.json({ ...(await dayPayload(profileId, day)), moved, to })

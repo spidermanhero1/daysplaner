@@ -29,6 +29,7 @@ import {
 import {
   addDays,
   dateLineOf,
+  isDayKey,
   monthTitleOf,
   relativeLabel,
   shortDateOf,
@@ -69,7 +70,7 @@ type Props = {
   onReorder: (day: string, ids: string[]) => void
   onAddSubtask: (parentId: string, title: string) => Promise<boolean>
   onReorderSubtasks: (parentId: string, ids: string[]) => void
-  onCarry: () => void
+  onCarry: (to: string) => void
   profiles: Profile[]
   profileId: string
   profileName: string
@@ -152,11 +153,16 @@ export function CalendarScreen({
   const [dockEdit, setDockEdit] = useState<string | null>(null)
   const [themesOpen, setThemesOpen] = useState(false)
   const [profilesOpen, setProfilesOpen] = useState(false)
+  const [carryOpen, setCarryOpen] = useState(false)
+  const [carryTo, setCarryTo] = useState('')
   const keepPick = useRef<string | null>(null)
   const themeBtn = useRef<HTMLButtonElement>(null)
   const themePop = useRef<HTMLDivElement>(null)
   const profileBtn = useRef<HTMLButtonElement>(null)
   const profilePop = useRef<HTMLDivElement>(null)
+  const carryBtn = useRef<HTMLButtonElement>(null)
+  const carryPop = useRef<HTMLFormElement>(null)
+  const carryInput = useRef<HTMLInputElement>(null)
   const wantFocus = useRef(false)
   const didAuto = useRef(false)
   const addRef = useRef<HTMLInputElement>(null)
@@ -213,19 +219,21 @@ export function CalendarScreen({
   }, [title, profileName])
 
   useEffect(() => {
-    if (!themesOpen && !profilesOpen) return
+    if (!themesOpen && !profilesOpen && !carryOpen) return
     function onPointer(event: PointerEvent) {
       const target = event.target
       if (!(target instanceof Node)) return
       if (themesOpen && (themeBtn.current?.contains(target) || themePop.current?.contains(target))) return
       if (target instanceof Element && target.closest('.profile-scrim')) return
       if (profilesOpen && (profileBtn.current?.contains(target) || profilePop.current?.contains(target))) return
+      if (carryOpen && (carryBtn.current?.contains(target) || carryPop.current?.contains(target))) return
       setThemesOpen(false)
       setProfilesOpen(false)
+      setCarryOpen(false)
     }
     document.addEventListener('pointerdown', onPointer)
     return () => document.removeEventListener('pointerdown', onPointer)
-  }, [themesOpen, profilesOpen])
+  }, [themesOpen, profilesOpen, carryOpen])
 
   useEffect(() => {
     setDrafts({})
@@ -234,6 +242,7 @@ export function CalendarScreen({
     setSheet(null)
     setProfilesOpen(false)
     setThemesOpen(false)
+    setCarryOpen(false)
   }, [profileId])
 
   useEffect(() => {
@@ -244,6 +253,19 @@ export function CalendarScreen({
     }
     setPicked(null)
   }, [selected])
+
+  useEffect(() => {
+    setCarryOpen(false)
+  }, [selected])
+
+  useEffect(() => {
+    if (selectedOpen.length === 0) setCarryOpen(false)
+  }, [selectedOpen.length])
+
+  useEffect(() => {
+    if (!carryOpen) return
+    carryInput.current?.focus()
+  }, [carryOpen])
 
   useEffect(() => {
     setDockEdit(null)
@@ -308,6 +330,11 @@ export function CalendarScreen({
       if (event.metaKey || event.ctrlKey) return
       const target = event.target
       if (target instanceof Element && target.closest('.profile-scrim')) return
+      if (event.code === 'Escape' && carryOpen) {
+        event.preventDefault()
+        setCarryOpen(false)
+        return
+      }
       const typing =
         target instanceof HTMLElement &&
         (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)
@@ -456,6 +483,7 @@ export function CalendarScreen({
     onPriority,
     themesOpen,
     profilesOpen,
+    carryOpen,
   ])
 
   function pickTask(day: string, id: string) {
@@ -595,7 +623,7 @@ export function CalendarScreen({
       data-theme={theme === 'paper' ? undefined : theme}
       data-tone={themeTone(theme)}
     >
-      <div className={profilesOpen ? 'cal-bar is-float' : 'cal-bar'}>
+      <div className={profilesOpen || carryOpen ? 'cal-bar is-float' : 'cal-bar'}>
         <div className="cal-shift">
           <button type="button" className="cal-arrow" aria-label={zoom === 'month' ? 'Предыдущий месяц' : 'Предыдущая неделя'} onClick={() => onPage(-1)}>
             ←
@@ -630,15 +658,71 @@ export function CalendarScreen({
             onClick={() => {
               setThemesOpen((open) => !open)
               setProfilesOpen(false)
+              setCarryOpen(false)
             }}
           >
             <span className="theme-dot" data-id={theme} aria-hidden="true" />
             вид
           </button>
           {selectedOpen.length > 0 ? (
-            <button type="button" className="carry" onClick={onCarry}>
-              Хвост на {relativeLabel(addDays(selected, 1), today) ?? shortDateOf(addDays(selected, 1))}
-            </button>
+            <div className="carry-slot">
+              <button
+                ref={carryBtn}
+                type="button"
+                className="carry"
+                aria-expanded={carryOpen}
+                aria-controls="carry-pop"
+                onClick={() => {
+                  setThemesOpen(false)
+                  setProfilesOpen(false)
+                  setCarryOpen((open) => {
+                    if (open) return false
+                    setCarryTo(selected < today ? today : addDays(selected, 1))
+                    return true
+                  })
+                }}
+              >
+                Хвост
+              </button>
+              {carryOpen ? (
+                <form
+                  id="carry-pop"
+                  className="carry-pop"
+                  ref={carryPop}
+                  role="dialog"
+                  aria-label="Куда перенести хвост"
+                  onSubmit={(event) => {
+                    event.preventDefault()
+                    if (!isDayKey(carryTo) || carryTo === selected) return
+                    setCarryOpen(false)
+                    onCarry(carryTo)
+                  }}
+                >
+                  <p>куда</p>
+                  <input
+                    ref={carryInput}
+                    type="date"
+                    value={carryTo}
+                    aria-label="День"
+                    onChange={(event) => setCarryTo(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Escape') {
+                        event.preventDefault()
+                        setCarryOpen(false)
+                      }
+                    }}
+                    required
+                  />
+                  <button type="submit" className="carry-go" disabled={!isDayKey(carryTo) || carryTo === selected}>
+                    {carryTo === selected
+                      ? 'тот же день'
+                      : isDayKey(carryTo)
+                        ? `на ${relativeLabel(carryTo, today) ?? shortDateOf(carryTo)}`
+                        : 'перенести'}
+                  </button>
+                </form>
+              ) : null}
+            </div>
           ) : null}
           <button type="button" className="text" onClick={onArchive}>
             сделанное
@@ -661,6 +745,7 @@ export function CalendarScreen({
             onClick={() => {
               setProfilesOpen((open) => !open)
               setThemesOpen(false)
+              setCarryOpen(false)
             }}
           >
             <span className="profile-mark" aria-hidden="true">
